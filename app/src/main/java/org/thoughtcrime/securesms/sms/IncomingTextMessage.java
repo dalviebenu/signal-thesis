@@ -182,9 +182,7 @@ public class IncomingTextMessage implements Parcelable {
     return pseudoSubject;
   }
 
-  public String getMessageBody() {
-    return message;
-  }
+  public String getMessageBody() { return message; }
 
   public RecipientId getSender() {
     return sender;

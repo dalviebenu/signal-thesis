@@ -1,12 +1,13 @@
-package org.thoughtcrime.securesms.otpDeniable;
+package org.dalvie.otpDeniable;
+
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 
 public class auth {
     SecretKey secretKey;

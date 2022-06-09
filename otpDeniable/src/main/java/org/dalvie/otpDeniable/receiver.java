@@ -1,4 +1,4 @@
-package org.thoughtcrime.securesms.otpDeniable;
+package org.dalvie.otpDeniable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;

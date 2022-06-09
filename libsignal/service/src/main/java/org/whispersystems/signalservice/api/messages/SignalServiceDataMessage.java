@@ -26,7 +26,7 @@ public class SignalServiceDataMessage {
 
   private final long                                    timestamp;
   private final Optional<List<SignalServiceAttachment>> attachments;
-  private final Optional<String>                        body;
+  private final      Optional<String>                        body;
   private final Optional<SignalServiceGroupContext>     group;
   private final Optional<byte[]>                        profileKey;
   private final boolean                                 endSession;
@@ -153,6 +153,7 @@ public class SignalServiceDataMessage {
     return body;
   }
 
+  // public void setBody(Optional<String> body) { this.body = body; }
   /**
    * @return The message group context (if any).
    */

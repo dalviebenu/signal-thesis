@@ -1,4 +1,4 @@
-package org.thoughtcrime.securesms.otpDeniable;
+package org.dalvie.otpDeniable;
 
 import java.util.Hashtable;
 
@@ -8,7 +8,7 @@ public class test {
         String real = "Hello";
         String fake = "Fakes";
 
-        sender Sender = new sender();
+        sender   Sender   = new sender();
         receiver Receiver = new receiver();
 
         Hashtable<String, byte[]> result =  Sender.send(real, fake);

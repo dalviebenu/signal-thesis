@@ -13,6 +13,7 @@ import com.annimon.stream.Stream;
 import com.google.protobuf.ByteString;
 import com.mobilecoin.lib.exceptions.SerializationException;
 
+import org.dalvie.otpDeniable.Encrypt;
 import org.signal.core.util.Hex;
 import org.signal.core.util.logging.Log;
 import org.signal.libsignal.protocol.SignalProtocolAddress;
@@ -178,6 +179,7 @@ import org.whispersystems.signalservice.api.push.ServiceId;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2327,19 +2329,24 @@ public final class MessageContentProcessor {
       insertResult = Optional.of(database.updateBundleMessageBody(smsMessageId.get(), body));
     } else {
       notifyTypingStoppedFromIncomingMessage(senderRecipient, threadRecipient, content.getSenderDevice());
+      //OTPDENIABLE HERE
+      Encrypt encrypt = new Encrypt();
+      byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
+      encrypt.update_key(key);
+      String plaintext = encrypt.decr(body);
 
       IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),
                                                                 content.getSenderDevice(),
                                                                 message.getTimestamp(),
                                                                 content.getServerReceivedTimestamp(),
                                                                 receivedTime,
-                                                                body,
+                                                                plaintext,
                                                                 groupId,
                                                                 TimeUnit.SECONDS.toMillis(message.getExpiresInSeconds()),
                                                                 content.isNeedsReceipt(),
                                                                 content.getServerUuid());
 
-      textMessage = new IncomingEncryptedMessage(textMessage, body);
+      textMessage = new IncomingEncryptedMessage(textMessage, plaintext);
       insertResult = database.insertMessageInbox(textMessage);
 
       if (smsMessageId.isPresent()) database.deleteMessage(smsMessageId.get());

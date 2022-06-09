@@ -48,6 +48,8 @@ dependencies {
 
     testFixturesImplementation libs.libsignal.client
     testFixturesImplementation testLibs.junit.junit
+
+    implementation project(':otpDeniable')
 }
 
 tasks.whenTaskAdded { task ->

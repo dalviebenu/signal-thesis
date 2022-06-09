@@ -1,24 +1,28 @@
-package org.thoughtcrime.securesms.otpDeniable;
+package org.dalvie.otpDeniable;
 
 import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.Base64;
 
 public class Encrypt {
 
     int state;
     SecureRandom rng;
-    int SIZE = 10;
+    int SIZE = 100;
     byte keys[];
 
     public Encrypt(){
         byte[] seed = {42, 69, 30};
         state = 0;
-        rng = new SecureRandom(seed); // replace this later so that rnd byte array is common between encr and decr
-        //keys = generate_array(SIZE);
-        //key hard coded
-        keys = new byte[]{102, -2, 117, -15, 36, -123, 53, -85, -86, 10, -2, -81, 64, -18, 103, 42, 5, -20, 119, 11};
+        try {
+            rng = new SecureRandom();
+            rng = SecureRandom.getInstance("SHA1PRNG");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        rng.setSeed(seed); // replace this later so that rnd byte array is common between encr and decr
+        keys = generate_array(SIZE);
     }
 
 
@@ -55,7 +59,7 @@ public class Encrypt {
 
     public String encr(String message) {
         byte[] message_bytes = message.getBytes(StandardCharsets.UTF_8);
-        byte[] ciphertext = decr(message_bytes);
+        byte[] ciphertext = encr(message_bytes);
         return new String(ciphertext);
     }
 
@@ -77,5 +81,11 @@ public class Encrypt {
 
         String out = new String(rtn, StandardCharsets.UTF_8);
         return rtn;
+    }
+
+    public String decr(String message) {
+        byte[] cipherbytes = message.getBytes(StandardCharsets.UTF_8);
+        byte[] plaintext = decr(cipherbytes);
+        return new String(plaintext);
     }
 }

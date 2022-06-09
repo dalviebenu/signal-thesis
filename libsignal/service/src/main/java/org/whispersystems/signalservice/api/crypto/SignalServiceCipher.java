@@ -58,6 +58,8 @@ import org.whispersystems.signalservice.internal.serialize.SignalServiceAddressP
 import org.whispersystems.signalservice.internal.serialize.SignalServiceMetadataProtobufSerializer;
 import org.whispersystems.signalservice.internal.serialize.protos.SignalServiceContentProto;
 
+import org.dalvie.otpDeniable.Encrypt;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -257,8 +259,9 @@ public class SignalServiceCipher {
     private final byte[]   data;
 
     private Plaintext(SignalServiceMetadata metadata, byte[] data) {
+
       this.metadata = metadata;
-      this.data     = data;
+      this.data = data;
     }
 
     public SignalServiceMetadata getMetadata() {

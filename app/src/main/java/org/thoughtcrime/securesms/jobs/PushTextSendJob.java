@@ -184,6 +184,8 @@ public class PushTextSendJob extends PushSendJob {
 
       // OTP DENIABLE PART HERE. Encrypt string message using byte array key.
       Encrypt encrypt = new Encrypt();
+      byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
+      encrypt.update_key(key);
       String ciphertext = encrypt.encr(message.getBody());
 
       SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()

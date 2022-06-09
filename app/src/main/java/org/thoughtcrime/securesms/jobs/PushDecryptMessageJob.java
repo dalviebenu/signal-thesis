@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
+import org.dalvie.otpDeniable.Encrypt;
 import org.signal.core.util.logging.Log;
 import org.signal.libsignal.protocol.SignalProtocolAddress;
 import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage;
@@ -23,11 +24,14 @@ import org.thoughtcrime.securesms.notifications.NotificationIds;
 import org.thoughtcrime.securesms.transport.RetryLaterException;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.whispersystems.signalservice.api.SignalServiceMessageSender;
+import org.whispersystems.signalservice.api.messages.SignalServiceContent;
+import org.whispersystems.signalservice.api.messages.SignalServiceDataMessage;
 import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Decrypts an envelope. Enqueues a separate job, {@link PushProcessMessageJob}, to actually insert
