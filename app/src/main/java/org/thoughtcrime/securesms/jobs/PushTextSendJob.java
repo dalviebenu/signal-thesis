@@ -16,6 +16,8 @@ import org.thoughtcrime.securesms.jobmanager.Data;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.notifications.v2.ConversationId;
+// import org.thoughtcrime.securesms.otpDeniable.Encrypt;
+import org.dalvie.otpDeniable.Encrypt;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.recipients.RecipientUtil;
@@ -180,9 +182,13 @@ public class PushTextSendJob extends PushSendJob {
 
       log(TAG, String.valueOf(message.getDateSent()), "Have access key to use: " + unidentifiedAccess.isPresent());
 
+      // OTP DENIABLE PART HERE. Encrypt string message using byte array key.
+      Encrypt encrypt = new Encrypt();
+      String ciphertext = encrypt.encr(message.getBody());
+
       SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()
                                                                            .withTimestamp(message.getDateSent())
-                                                                           .withBody(message.getBody())
+                                                                           .withBody(ciphertext)
                                                                            .withExpiration((int)(message.getExpiresIn() / 1000))
                                                                            .withProfileKey(profileKey.orElse(null))
                                                                            .asEndSessionMessage(message.isEndSession())
