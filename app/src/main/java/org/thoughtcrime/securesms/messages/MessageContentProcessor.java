@@ -2329,11 +2329,18 @@ public final class MessageContentProcessor {
       insertResult = Optional.of(database.updateBundleMessageBody(smsMessageId.get(), body));
     } else {
       notifyTypingStoppedFromIncomingMessage(senderRecipient, threadRecipient, content.getSenderDevice());
+
       //OTPDENIABLE HERE
       Encrypt encrypt = new Encrypt();
       byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
       encrypt.update_key(key);
-      String plaintext = encrypt.decr(body);
+      byte[] plainbytes = encrypt.decr(body.getBytes(StandardCharsets.UTF_8));
+      byte[] mr = Arrays.copyOfRange(plainbytes, 0, encrypt.N);
+      byte[] mf = Arrays.copyOfRange(plainbytes, encrypt.N, encrypt.N * 2);
+      byte[] MR = Encrypt.remove_trailing_0(mr);
+      byte[] MF = Encrypt.remove_trailing_0(mf);
+      String plaintext = new String(MR);
+      String fake = new String(MF);
 
       IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),
                                                                 content.getSenderDevice(),

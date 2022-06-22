@@ -39,6 +39,7 @@ import org.whispersystems.signalservice.api.push.exceptions.ServerRejectedExcept
 import org.whispersystems.signalservice.api.push.exceptions.UnregisteredUserException;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 public class PushTextSendJob extends PushSendJob {
@@ -183,10 +184,19 @@ public class PushTextSendJob extends PushSendJob {
       log(TAG, String.valueOf(message.getDateSent()), "Have access key to use: " + unidentifiedAccess.isPresent());
 
       // OTP DENIABLE PART HERE. Encrypt string message using byte array key.
+
       Encrypt encrypt = new Encrypt();
       byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
       encrypt.update_key(key);
-      String ciphertext = encrypt.encr(message.getBody());
+
+      String fake_message = "fake";
+      byte[] fake = encrypt.append_0(fake_message.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
+      byte[] message_bytes = encrypt.append_0(message.getBody().getBytes(StandardCharsets.UTF_8));
+      byte[] fin = new byte[encrypt.N * 2]; // refactor this part into a function
+      System.arraycopy(message_bytes, 0, fin, 0, message_bytes.length);
+      System.arraycopy(fake, 0, fin, message_bytes.length, fake.length);
+      byte[] ciphertbytes = encrypt.encr(fin);
+      String ciphertext = new String(ciphertbytes); // Maybe use base64 ?
 
       SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()
                                                                            .withTimestamp(message.getDateSent())

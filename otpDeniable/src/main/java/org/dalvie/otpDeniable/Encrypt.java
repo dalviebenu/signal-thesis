@@ -11,6 +11,7 @@ public class Encrypt {
     SecureRandom rng;
     int SIZE = 100;
     byte keys[];
+    public final int N = 10;
 
     public Encrypt(){
         byte[] seed = {42, 69, 30};
@@ -87,5 +88,21 @@ public class Encrypt {
         byte[] cipherbytes = message.getBytes(StandardCharsets.UTF_8);
         byte[] plaintext = decr(cipherbytes);
         return new String(plaintext);
+    }
+
+    public byte[] append_0(byte[] arr) {
+        if (arr.length < N) {
+            byte[] rtn = Arrays.copyOf(arr, N);
+            return rtn;
+        }
+        return arr;
+    }
+
+    public static byte[] remove_trailing_0(byte[] arr) {
+        int pos = arr.length - 1;
+        while (arr[pos] == 0) {
+            --pos;
+        }
+        return Arrays.copyOfRange(arr,0,  pos + 1);
     }
 }
