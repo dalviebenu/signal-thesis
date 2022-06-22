@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.HashMap;
 
 public class Encrypt {
 
@@ -104,5 +105,37 @@ public class Encrypt {
             --pos;
         }
         return Arrays.copyOfRange(arr,0,  pos + 1);
+    }
+
+    public String doFinalEncrypt(String message, String fakeMessage) {
+        /**
+         * This method takes in a message and a fake message, combines them, encrypts and returns a string representation of the result according to the
+         * otpDeniable FAKES protocol.
+         */
+        byte[] fake = this.append_0(fakeMessage.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
+        byte[] message_bytes = this.append_0(message.getBytes(StandardCharsets.UTF_8));
+        byte[] fin = new byte[this.N * 2];
+        System.arraycopy(message_bytes, 0, fin, 0, message_bytes.length);
+        System.arraycopy(fake, 0, fin, message_bytes.length, fake.length);
+        byte[] ciphertbytes = this.encr(fin);
+        return new String(ciphertbytes); // Maybe use base64 ?
+    }
+
+    public HashMap<String, String> doFinalDecrypt(String message) {
+        /**
+         * This method return a key value pair of real message and fake message. It expects an encrypted String, it will extract the decrypted real and fake
+         * message from it.
+         */
+        HashMap<String, String> rtn = new HashMap<>();
+        byte[] plainbytes = this.decr(message.getBytes(StandardCharsets.UTF_8));
+        byte[] mr = Arrays.copyOfRange(plainbytes, 0, this.N);
+        byte[] mf = Arrays.copyOfRange(plainbytes, this.N, this.N * 2);
+        byte[] MR = Encrypt.remove_trailing_0(mr);
+        byte[] MF = Encrypt.remove_trailing_0(mf);
+        String plaintext = new String(MR);
+        String fake = new String(MF);
+        rtn.put("plaintext", plaintext);
+        rtn.put("fake", fake);
+        return rtn;
     }
 }

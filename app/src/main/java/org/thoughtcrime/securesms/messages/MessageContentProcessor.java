@@ -2334,13 +2334,8 @@ public final class MessageContentProcessor {
       Encrypt encrypt = new Encrypt();
       byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
       encrypt.update_key(key);
-      byte[] plainbytes = encrypt.decr(body.getBytes(StandardCharsets.UTF_8));
-      byte[] mr = Arrays.copyOfRange(plainbytes, 0, encrypt.N);
-      byte[] mf = Arrays.copyOfRange(plainbytes, encrypt.N, encrypt.N * 2);
-      byte[] MR = Encrypt.remove_trailing_0(mr);
-      byte[] MF = Encrypt.remove_trailing_0(mf);
-      String plaintext = new String(MR);
-      String fake = new String(MF);
+      HashMap<String, String> values = encrypt.doFinalDecrypt(body);
+      String plaintext = values.get("plaintext");
 
       IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),
                                                                 content.getSenderDevice(),

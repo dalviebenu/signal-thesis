@@ -190,13 +190,7 @@ public class PushTextSendJob extends PushSendJob {
       encrypt.update_key(key);
 
       String fake_message = "fake";
-      byte[] fake = encrypt.append_0(fake_message.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
-      byte[] message_bytes = encrypt.append_0(message.getBody().getBytes(StandardCharsets.UTF_8));
-      byte[] fin = new byte[encrypt.N * 2]; // refactor this part into a function
-      System.arraycopy(message_bytes, 0, fin, 0, message_bytes.length);
-      System.arraycopy(fake, 0, fin, message_bytes.length, fake.length);
-      byte[] ciphertbytes = encrypt.encr(fin);
-      String ciphertext = new String(ciphertbytes); // Maybe use base64 ?
+      String ciphertext = encrypt.doFinalEncrypt(message.getBody(), fake_message);
 
       SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()
                                                                            .withTimestamp(message.getDateSent())
