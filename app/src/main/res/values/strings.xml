@@ -4864,6 +4864,7 @@
     </plurals>
     <!-- Gift expiry expired -->
     <string name="Gifts__expired">Expired</string>
+    <string name="test_button">Test Button</string>
 
     <!-- EOF -->
 

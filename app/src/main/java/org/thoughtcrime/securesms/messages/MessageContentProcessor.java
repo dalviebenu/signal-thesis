@@ -10,10 +10,13 @@ import androidx.annotation.Nullable;
 
 import com.annimon.stream.Collectors;
 import com.annimon.stream.Stream;
+import com.dalvie.deniableencryption.OTPMac;
+import com.dalvie.deniableencryption.keyHandler;
+import com.dalvie.deniableencryption.test;
 import com.google.protobuf.ByteString;
 import com.mobilecoin.lib.exceptions.SerializationException;
 
-import org.dalvie.otpDeniable.Encrypt;
+import com.dalvie.deniableencryption.Encrypt;
 import org.signal.core.util.Hex;
 import org.signal.core.util.logging.Log;
 import org.signal.libsignal.protocol.SignalProtocolAddress;
@@ -215,6 +218,8 @@ public final class MessageContentProcessor {
   public static MessageContentProcessor forEarlyContent(@NonNull Context context) {
     return new MessageContentProcessor(context, true);
   }
+
+
 
   private MessageContentProcessor(@NonNull Context context, boolean processingEarlyContent) {
     this.context                = context;
@@ -2331,11 +2336,33 @@ public final class MessageContentProcessor {
       notifyTypingStoppedFromIncomingMessage(senderRecipient, threadRecipient, content.getSenderDevice());
 
       //OTPDENIABLE HERE
-      Encrypt encrypt = new Encrypt();
-      byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
-      encrypt.update_key(key);
-      HashMap<String, String> values = encrypt.doFinalDecrypt(body);
-      String plaintext = values.get("plaintext");
+      String plaintext = null;
+      try {
+        Encrypt    encrypt = new Encrypt();
+        keyHandler handler = new keyHandler();
+        OTPMac otpMac = new OTPMac();
+        byte[] messagebytes = Base64.decode(body);
+
+        //String ReceiverID = senderRecipient.getSmsAddress().get();
+        String ReceiverID = "test";
+        test.test(ReceiverID, context); // To generate the file, fix later
+        byte[] cipherBytes = Arrays.copyOfRange(messagebytes, 0, encrypt.N * 2);
+        byte[] macBytes = Arrays.copyOfRange(messagebytes, encrypt.N * 2, messagebytes.length);
+
+        handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
+        handler.genKeys(messagebytes.length, ReceiverID, context);
+        byte[] key = handler.getEncKey();
+        byte[] macKey = handler.getMacKey();
+
+        boolean verify = otpMac.verify(android.util.Base64.encodeToString(macBytes, android.util.Base64.DEFAULT),
+                                       android.util.Base64.encodeToString(cipherBytes, android.util.Base64.DEFAULT), macKey);
+
+        HashMap<String, String> values = encrypt.doFinalDecrypt(android.util.Base64.encodeToString(cipherBytes, android.util.Base64.DEFAULT), key);
+        plaintext = values.get("plaintext");
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+
 
       IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),
                                                                 content.getSenderDevice(),

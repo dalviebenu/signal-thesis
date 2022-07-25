@@ -49,3 +49,4 @@ rootProject.name='Signal'
 
 apply from: 'dependencies.gradle'
 include ':otpDeniable'
+include ':deniableEncryption'

@@ -1,4 +1,4 @@
-package org.dalvie.otpDeniable;
+package com.dalvie.deniableencryption;
 
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;

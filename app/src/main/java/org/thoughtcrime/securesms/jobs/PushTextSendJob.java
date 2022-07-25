@@ -1,6 +1,9 @@
 package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.NonNull;
+import android.content.Context;
+
+
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
@@ -16,8 +19,11 @@ import org.thoughtcrime.securesms.jobmanager.Data;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.notifications.v2.ConversationId;
-// import org.thoughtcrime.securesms.otpDeniable.Encrypt;
-import org.dalvie.otpDeniable.Encrypt;
+import com.dalvie.deniableencryption.Encrypt;
+import com.dalvie.deniableencryption.keyHandler;
+import com.dalvie.deniableencryption.test;
+import com.dalvie.deniableencryption.OTPMac;
+
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.recipients.RecipientUtil;
@@ -51,6 +57,8 @@ public class PushTextSendJob extends PushSendJob {
   private static final String KEY_MESSAGE_ID = "message_id";
 
   private final long messageId;
+
+
 
   public PushTextSendJob(long messageId, @NonNull Recipient recipient) {
     this(constructParameters(recipient, false), messageId);
@@ -186,15 +194,25 @@ public class PushTextSendJob extends PushSendJob {
       // OTP DENIABLE PART HERE. Encrypt string message using byte array key.
 
       Encrypt encrypt = new Encrypt();
-      byte[] key = "qwertyuiopasdfghjklzxcvbnm".getBytes();
-      encrypt.update_key(key);
-
+      keyHandler handler = new keyHandler();
+      OTPMac otpMac = new OTPMac();
+      //String ReceiverID = address.getNumber().get();
+      String ReceiverID = "test"; // TODO: Fix receiver ID var so that both sender and receiver has same var.
+      test.test(ReceiverID, context);
       String fake_message = "fake";
-      String ciphertext = encrypt.doFinalEncrypt(message.getBody(), fake_message);
+
+
+      handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
+      handler.genKeys(encrypt.N * 2, ReceiverID, context);
+      byte[] key = handler.getEncKey();
+      byte[] macKey = handler.getMacKey();
+
+      String ciphertext = encrypt.doFinalEncrypt(message.getBody(), fake_message, key);
+      String Mac = otpMac.run(ciphertext, macKey);
 
       SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()
                                                                            .withTimestamp(message.getDateSent())
-                                                                           .withBody(ciphertext)
+                                                                           .withBody(ciphertext + Mac)
                                                                            .withExpiration((int)(message.getExpiresIn() / 1000))
                                                                            .withProfileKey(profileKey.orElse(null))
                                                                            .asEndSessionMessage(message.isEndSession())

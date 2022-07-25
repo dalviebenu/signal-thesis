@@ -163,8 +163,8 @@ android {
     defaultConfig {
         versionCode canonicalVersionCode * postFixSize
         versionName canonicalVersionName
+        minSdk MINIMUM_SDK
 
-        minSdkVersion MINIMUM_SDK
         targetSdkVersion TARGET_SDK
 
         multiDexEnabled true
@@ -397,6 +397,7 @@ android {
 dependencies {
     implementation libs.androidx.core.ktx
     implementation libs.androidx.fragment.ktx
+    implementation project(path: ':deniableEncryption')
     lintChecks project(':lintchecks')
 
     coreLibraryDesugaring libs.android.tools.desugar
@@ -456,7 +457,6 @@ dependencies {
     implementation project(':donations')
     implementation project(':contacts')
     implementation project(':qr')
-    implementation project(':otpDeniable')
 
     implementation libs.libsignal.android
     implementation libs.google.protobuf.javalite

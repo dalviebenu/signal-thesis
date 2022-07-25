@@ -7,7 +7,6 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
-import org.dalvie.otpDeniable.Encrypt;
 import org.signal.core.util.logging.Log;
 import org.signal.libsignal.protocol.SignalProtocolAddress;
 import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage;
