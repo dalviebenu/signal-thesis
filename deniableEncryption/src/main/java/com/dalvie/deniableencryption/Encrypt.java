@@ -96,6 +96,7 @@ public class Encrypt {
         /**
          * This method takes in a message and a fake message, combines them, encrypts and returns a string representation of the result according to the
          * otpDeniable FAKES protocol.
+         * UTF-8 -> Byte Array -> Base64
          */
         byte[] fake = this.append_0(fakeMessage.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
         byte[] message_bytes = this.append_0(message.getBytes(StandardCharsets.UTF_8));
@@ -105,16 +106,19 @@ public class Encrypt {
         byte[] ciphertbytes = this.encr(fin, key);
 
         return Base64.encodeToString(ciphertbytes, Base64.DEFAULT);
+        // return new String(ciphertbytes);
     }
 
     public HashMap<String, String> doFinalDecrypt(String message, byte[] key) {
         /**
          * This method return a key value pair of real message and fake message. It expects an encrypted String, it will extract the decrypted real and fake
          * message from it.
+         * Base64 String -> Byte Array -> UTF-8
          */
         HashMap<String, String> rtn = new HashMap<>();
         byte[] base64Decoded = Base64.decode(message, Base64.DEFAULT);
         byte[] plainbytes = this.decr(base64Decoded, key);
+        // byte[] plainbytes = this.decr(message.getBytes(StandardCharsets.UTF_8), key);
         byte[] mr = Arrays.copyOfRange(plainbytes, 0, this.N);
         byte[] mf = Arrays.copyOfRange(plainbytes, this.N, this.N * 2);
         byte[] MR = Encrypt.remove_trailing_0(mr);

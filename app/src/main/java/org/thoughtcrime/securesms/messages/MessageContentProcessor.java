@@ -13,6 +13,7 @@ import com.annimon.stream.Stream;
 import com.dalvie.deniableencryption.OTPMac;
 import com.dalvie.deniableencryption.keyHandler;
 import com.dalvie.deniableencryption.test;
+import org.apache.commons.codec.binary.*;
 import com.google.protobuf.ByteString;
 import com.mobilecoin.lib.exceptions.SerializationException;
 
@@ -2337,31 +2338,31 @@ public final class MessageContentProcessor {
 
       //OTPDENIABLE HERE
       String plaintext = null;
-      try {
+
         Encrypt    encrypt = new Encrypt();
         keyHandler handler = new keyHandler();
         OTPMac otpMac = new OTPMac();
-        byte[] messagebytes = Base64.decode(body);
+
+        // Need to split message to two base64 strings before decoding. 28 characters (incl) in cipher text with current padding, will fix later.
+        String text = body.substring(0, 29);
+        String MAC = body.substring(29);
+        byte[] cipherBytes = java.util.Base64.getMimeDecoder().decode(text);
+        byte[] macBytes = java.util.Base64.getMimeDecoder().decode(MAC);
+
 
         //String ReceiverID = senderRecipient.getSmsAddress().get();
         String ReceiverID = "test";
         test.test(ReceiverID, context); // To generate the file, fix later
-        byte[] cipherBytes = Arrays.copyOfRange(messagebytes, 0, encrypt.N * 2);
-        byte[] macBytes = Arrays.copyOfRange(messagebytes, encrypt.N * 2, messagebytes.length);
 
         handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
-        handler.genKeys(messagebytes.length, ReceiverID, context);
+        handler.genKeys(cipherBytes.length,ReceiverID, context);
         byte[] key = handler.getEncKey();
         byte[] macKey = handler.getMacKey();
 
-        boolean verify = otpMac.verify(android.util.Base64.encodeToString(macBytes, android.util.Base64.DEFAULT),
-                                       android.util.Base64.encodeToString(cipherBytes, android.util.Base64.DEFAULT), macKey);
-
-        HashMap<String, String> values = encrypt.doFinalDecrypt(android.util.Base64.encodeToString(cipherBytes, android.util.Base64.DEFAULT), key);
+        boolean verify = otpMac.verify(macBytes, cipherBytes, macKey);
+        HashMap<String, String> values = encrypt.doFinalDecrypt( java.util.Base64.getMimeEncoder().encodeToString(cipherBytes), key);
         plaintext = values.get("plaintext");
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
+
 
 
       IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),

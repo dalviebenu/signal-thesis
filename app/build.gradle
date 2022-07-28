@@ -163,7 +163,7 @@ android {
     defaultConfig {
         versionCode canonicalVersionCode * postFixSize
         versionName canonicalVersionName
-        minSdk MINIMUM_SDK
+        minSdk 26
 
         targetSdkVersion TARGET_SDK
 
