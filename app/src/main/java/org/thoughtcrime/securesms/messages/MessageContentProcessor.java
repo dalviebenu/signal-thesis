@@ -10,6 +10,7 @@ import androidx.annotation.Nullable;
 
 import com.annimon.stream.Collectors;
 import com.annimon.stream.Stream;
+import com.dalvie.deniableencryption.FakeKey;
 import com.dalvie.deniableencryption.OTPMac;
 import com.dalvie.deniableencryption.keyHandler;
 import com.dalvie.deniableencryption.test;
@@ -2350,8 +2351,8 @@ public final class MessageContentProcessor {
         byte[] macBytes = java.util.Base64.getMimeDecoder().decode(MAC);
 
 
-        //String ReceiverID = senderRecipient.getSmsAddress().get();
-        String ReceiverID = "test";
+        String ReceiverID = senderRecipient.getSmsAddress().get();
+        // String TEST = senderRecipient.getDisplayNameOrUsername(context);
         test.test(ReceiverID, context); // To generate the file, fix later
 
         handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
@@ -2378,6 +2379,11 @@ public final class MessageContentProcessor {
 
       textMessage = new IncomingEncryptedMessage(textMessage, plaintext);
       insertResult = database.insertMessageInbox(textMessage);
+
+      // Replace key used for encryption with fake key. Fake key generated from fake message.
+      FakeKey fakeKey      = new FakeKey();
+      byte[]  fakeKeyBytes = fakeKey.generateFakeKey(cipherBytes, values.get("fake").getBytes());
+      fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
 
       if (smsMessageId.isPresent()) database.deleteMessage(smsMessageId.get());
     }

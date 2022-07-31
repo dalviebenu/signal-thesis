@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 
@@ -14,6 +15,7 @@ public class keyHandler {
   String PREFERENCE_KEY_FILE_NAME = "com.dalvie.deniableencryption";
   private byte[] key;
   private byte[] mac;
+
   public keyHandler() { }
 
   /**
@@ -44,23 +46,32 @@ public class keyHandler {
       this.mac = mac;
       setState(context, ReceiverID, i + 32);
 
-    } catch (IOException | ArrayIndexOutOfBoundsException e) {
+    } catch ( ArrayIndexOutOfBoundsException e) {
       // What to do if file doesn't exist ? Assume file exists or have function to create key file ?
       // not enough key material
       this.key = null;
     }
   }
 
-  private byte[] getKeyBytes(String ReceiverID, Context context) throws IOException {
-    File file = new File(context.getFilesDir(), ReceiverID); // Files should be named by their receiverID.
-    FileInputStream inStream = new FileInputStream(file);
-    byte[] keyBytes = new byte[(int) file.length()];
-    inStream.read(keyBytes);
-    inStream.close();
-    return keyBytes;
+  public byte[] getKeyBytes(String ReceiverID, Context context) {
+    try {
+      File file = new File(context.getFilesDir(), ReceiverID); // Files should be named by their receiverID.
+      FileInputStream inStream = new FileInputStream(file);
+      byte[] keyBytes = new byte[(int) file.length()];
+      inStream.read(keyBytes);
+      inStream.close();
+      return keyBytes;
+    } catch (FileNotFoundException e) {
+      // What to do if file doesn't exist ? Assume file exists or have function to create key file ?
+      e.printStackTrace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+
+    return null;
   }
 
-  private int getState(Context context, String ReceiverID) {
+  public int getState(Context context, String ReceiverID) {
     SharedPreferences sharedPref = context.getSharedPreferences(PREFERENCE_KEY_FILE_NAME, Context.MODE_PRIVATE);
     boolean exists = sharedPref.contains(ReceiverID);
     int state;

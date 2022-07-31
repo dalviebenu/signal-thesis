@@ -20,6 +20,7 @@ import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.notifications.v2.ConversationId;
 import com.dalvie.deniableencryption.Encrypt;
+import com.dalvie.deniableencryption.FakeKey;
 import com.dalvie.deniableencryption.keyHandler;
 import com.dalvie.deniableencryption.test;
 import com.dalvie.deniableencryption.OTPMac;
@@ -46,6 +47,7 @@ import org.whispersystems.signalservice.api.push.exceptions.UnregisteredUserExce
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Optional;
 
 public class PushTextSendJob extends PushSendJob {
@@ -196,8 +198,7 @@ public class PushTextSendJob extends PushSendJob {
       Encrypt encrypt = new Encrypt();
       keyHandler handler = new keyHandler();
       OTPMac otpMac = new OTPMac();
-      //String ReceiverID = address.getNumber().get();
-      String ReceiverID = "test"; // TODO: Fix receiver ID var so that both sender and receiver has same var.
+      String ReceiverID = address.getNumber().get(); // TODO: When encrypting use file with recipient name
       test.test(ReceiverID, context);
       String fake_message = "fake";
 
@@ -217,6 +218,11 @@ public class PushTextSendJob extends PushSendJob {
                                                                            .withProfileKey(profileKey.orElse(null))
                                                                            .asEndSessionMessage(message.isEndSession())
                                                                            .build();
+
+      // Replace key used for encryption with fake key. Fake key generated from fake message.
+      FakeKey fakeKey = new FakeKey();
+      byte[] fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fake_message.getBytes());
+      fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
 
       if (Util.equals(SignalStore.account().getAci(), address.getServiceId())) {
         Optional<UnidentifiedAccessPair> syncAccess  = UnidentifiedAccessUtil.getAccessForSync(context);
