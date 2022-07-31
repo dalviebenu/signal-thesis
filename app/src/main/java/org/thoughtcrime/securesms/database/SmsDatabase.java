@@ -643,6 +643,11 @@ public class SmsDatabase extends MessageDatabase {
     return updateMessageBodyAndType(messageId, body, Types.TOTAL_MASK, type);
   }
 
+  public void updateMessageBody(long messageId, String body) {
+    long type = 0;
+    updateMessageBodyAndType(messageId, body, Types.ENCRYPTION_MASK, type);
+  }
+
   @Override
   public @NonNull List<MarkedMessageInfo> getViewedIncomingMessages(long threadId) {
     return Collections.emptyList();

@@ -10,11 +10,12 @@ import android.util.Base64;
 
 public class Encrypt {
 
+    private static int n = 255;
     int state;
     SecureRandom rng;
     int SIZE = 100;
     byte keys[];
-    public final int N = 10;
+    public final int N = 255;
 
     public Encrypt(){
         byte[] seed = {42, 69, 30};
@@ -76,9 +77,9 @@ public class Encrypt {
         return new String(plaintext);
     }
 
-    public byte[] append_0(byte[] arr) {
-        if (arr.length < N) {
-            byte[] rtn = Arrays.copyOf(arr, N);
+    public static byte[] append_0(byte[] arr) {
+        if (arr.length < n) {
+            byte[] rtn = Arrays.copyOf(arr, n);
             return rtn;
         }
         return arr;
@@ -92,19 +93,18 @@ public class Encrypt {
         return Arrays.copyOfRange(arr,0,  pos + 1);
     }
 
-    public String doFinalEncrypt(String message, String fakeMessage, byte[] key) {
+    public String doFinalEncrypt(String message, byte[] key) {
         /**
-         * This method takes in a message and a fake message, combines them, encrypts and returns a string representation of the result according to the
+         * This method takes in a message (string), encrypts and returns a string representation of the result according to the
          * otpDeniable FAKES protocol.
          * UTF-8 -> Byte Array -> Base64
          */
-        byte[] fake = this.append_0(fakeMessage.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
-        byte[] message_bytes = this.append_0(message.getBytes(StandardCharsets.UTF_8));
-        byte[] fin = new byte[this.N * 2];
-        System.arraycopy(message_bytes, 0, fin, 0, message_bytes.length);
-        System.arraycopy(fake, 0, fin, message_bytes.length, fake.length);
-        byte[] ciphertbytes = this.encr(fin, key);
-
+        // byte[] fake = append_0(fakeMessage.getBytes(StandardCharsets.UTF_8)); // get bytes of message that is of size N appended with 0s
+        // byte[] message_bytes = append_0(message.getBytes(StandardCharsets.UTF_8));
+        //byte[] fin = new byte[this.N * 2];
+        //System.arraycopy(message_bytes, 0, fin, 0, message_bytes.length);
+        //System.arraycopy(fake, 0, fin, message_bytes.length, fake.length);
+        byte[] ciphertbytes = this.encr(message.getBytes(), key);
         return Base64.encodeToString(ciphertbytes, Base64.DEFAULT);
         // return new String(ciphertbytes);
     }

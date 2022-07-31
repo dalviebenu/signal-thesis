@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Random;
 
 public class test {
 
@@ -20,17 +21,17 @@ public class test {
         byte[] key = keyString.getBytes();
 
         try {
-            SecureRandom rng = SecureRandom.getInstance("SHA1PRNG");
-            rng.setSeed(12345678L);
-            byte[] bytes = new byte[1000];
+            Random rng = new Random(12345678L);
+            //rng.setSeed(12345678L);
+            byte[] bytes = new byte[5000];
             rng.nextBytes(bytes);
             // Secure random doesn't produce same bytes every iteration despite setting seed. Using hardcoded byte array instead.
 
             File file = new File(context.getFilesDir(), RecieverID);
             FileOutputStream fos = new FileOutputStream(file);
-            fos.write(key);
+            fos.write(bytes);
 
-        } catch (NoSuchAlgorithmException | FileNotFoundException e) {
+        } catch ( FileNotFoundException e) {
             Log.println(Log.ERROR, "error", "File Not Found");
         } catch (IOException e) {
             Log.println(Log.ERROR, "error", "IOException");

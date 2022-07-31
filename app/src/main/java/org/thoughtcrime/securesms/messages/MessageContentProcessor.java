@@ -2340,50 +2340,82 @@ public final class MessageContentProcessor {
       //OTPDENIABLE HERE
       String plaintext = null;
 
-        Encrypt    encrypt = new Encrypt();
-        keyHandler handler = new keyHandler();
-        OTPMac otpMac = new OTPMac();
+      Encrypt    encrypt = new Encrypt();
+      keyHandler handler = new keyHandler();
+      OTPMac otpMac = new OTPMac();
+      String ReceiverID = senderRecipient.getSmsAddress().get();
+      test.test(ReceiverID, context); // To generate the file, fix later
+      handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
+      handler.genKeys(encrypt.N * 2,ReceiverID, context);
 
-        // Need to split message to two base64 strings before decoding. 28 characters (incl) in cipher text with current padding, will fix later.
-        String text = body.substring(0, 29);
-        String MAC = body.substring(29);
-        byte[] cipherBytes = java.util.Base64.getMimeDecoder().decode(text);
-        byte[] macBytes = java.util.Base64.getMimeDecoder().decode(MAC);
+      byte[] key = handler.getEncKey();
+      byte[] macKey = handler.getMacKey();
 
+      IncomingTextMessage textMessage;
+      if((key == null || macKey == null ||key[encrypt.N - 1] == 0 || macKey[32 -1] == 0) ) {
+        textMessage = new IncomingTextMessage(senderRecipient.getId(),
+                                                                  content.getSenderDevice(),
+                                                                  message.getTimestamp(),
+                                                                  content.getServerReceivedTimestamp(),
+                                                                  receivedTime,
+                                                                  body,
+                                                                  groupId,
+                                                                  TimeUnit.SECONDS.toMillis(message.getExpiresInSeconds()),
+                                                                  content.isNeedsReceipt(),
+                                                                  content.getServerUuid());
 
-        String ReceiverID = senderRecipient.getSmsAddress().get();
-        // String TEST = senderRecipient.getDisplayNameOrUsername(context);
-        test.test(ReceiverID, context); // To generate the file, fix later
+        textMessage = new IncomingEncryptedMessage(textMessage, body);
+        insertResult = database.insertMessageInbox(textMessage);
+      } else {
+        // Need to split message to two base64 strings before decoding. 680 characters (incl) in cipher text with current padding.
+        //String text = body.substring(0, 681);
+        //String MAC = body.substring(681);
+        //byte[] cipherBytes = java.util.Base64.getMimeDecoder().decode(text);
+        //byte[] macBytes = java.util.Base64.getMimeDecoder().decode(MAC);
 
-        handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
-        handler.genKeys(cipherBytes.length,ReceiverID, context);
-        byte[] key = handler.getEncKey();
-        byte[] macKey = handler.getMacKey();
+        byte[] messageBytes = java.util.Base64.getMimeDecoder().decode(body);
+        byte[] cipherBytes = Arrays.copyOfRange(messageBytes, 0, encrypt.N * 2);
+        byte[] macBytes = Arrays.copyOfRange(messageBytes, encrypt.N * 2, messageBytes.length);
 
         boolean verify = otpMac.verify(macBytes, cipherBytes, macKey);
-        HashMap<String, String> values = encrypt.doFinalDecrypt( java.util.Base64.getMimeEncoder().encodeToString(cipherBytes), key);
-        plaintext = values.get("plaintext");
+        if (verify) {
+          HashMap<String, String> values = encrypt.doFinalDecrypt( java.util.Base64.getMimeEncoder().encodeToString(cipherBytes), key);
+          plaintext = values.get("plaintext");
+
+
+          textMessage = new IncomingTextMessage(senderRecipient.getId(),
+                                                content.getSenderDevice(),
+                                                message.getTimestamp(),
+                                                content.getServerReceivedTimestamp(),
+                                                receivedTime,
+                                                plaintext,
+                                                groupId,
+                                                TimeUnit.SECONDS.toMillis(message.getExpiresInSeconds()),
+                                                content.isNeedsReceipt(),
+                                                content.getServerUuid());
+
+          textMessage = new IncomingEncryptedMessage(textMessage, plaintext);
+          insertResult = database.insertMessageInbox(textMessage);
 
 
 
-      IncomingTextMessage textMessage = new IncomingTextMessage(senderRecipient.getId(),
-                                                                content.getSenderDevice(),
-                                                                message.getTimestamp(),
-                                                                content.getServerReceivedTimestamp(),
-                                                                receivedTime,
-                                                                plaintext,
-                                                                groupId,
-                                                                TimeUnit.SECONDS.toMillis(message.getExpiresInSeconds()),
-                                                                content.isNeedsReceipt(),
-                                                                content.getServerUuid());
+          // Replace key used for encryption with fake key. Fake key generated from fake message.
+          FakeKey fakeKey = new FakeKey();
+          byte[] fakeKeyBytes;
 
-      textMessage = new IncomingEncryptedMessage(textMessage, plaintext);
-      insertResult = database.insertMessageInbox(textMessage);
+          if (cipherBytes[255] != 0) {
+            byte[] fakeMessageBytes = Arrays.copyOfRange(cipherBytes, encrypt.N, cipherBytes.length);
+            fakeKeyBytes = fakeKey.generateFakeKey(cipherBytes, fakeMessageBytes);
+          } else {
+            byte[] fakeMessageBytes = Arrays.copyOfRange(cipherBytes, 0, encrypt.N);
+            fakeKeyBytes = fakeKey.generateFakeKey(cipherBytes, fakeMessageBytes);
+          }
+          fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
 
-      // Replace key used for encryption with fake key. Fake key generated from fake message.
-      FakeKey fakeKey      = new FakeKey();
-      byte[]  fakeKeyBytes = fakeKey.generateFakeKey(cipherBytes, values.get("fake").getBytes());
-      fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
+        } else {
+          insertResult = Optional.empty(); // What to do if verify fails ??
+        }
+      }
 
       if (smsMessageId.isPresent()) database.deleteMessage(smsMessageId.get());
     }

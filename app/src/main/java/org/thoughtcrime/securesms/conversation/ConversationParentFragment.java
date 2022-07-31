@@ -91,6 +91,9 @@ import com.annimon.stream.Stream;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.dalvie.deniableencryption.Encrypt;
+import com.dalvie.deniableencryption.keyHandler;
+import com.dalvie.deniableencryption.test;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -305,6 +308,7 @@ import org.thoughtcrime.securesms.wallpaper.ChatWallpaperDimLevelUtil;
 import org.whispersystems.signalservice.api.SignalSessionLock;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -453,6 +457,10 @@ public class ConversationParentFragment extends Fragment
   private IdentityRecordList   identityRecords = new IdentityRecordList(Collections.emptyList());
   private Callback             callback;
   private RecentEmojiPageModel recentEmojis;
+
+  private String fMessage ="";
+  private String rMessage ="";
+  private boolean deniable = true;
 
   @Override
   public @NonNull View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
@@ -1309,6 +1317,16 @@ public class ConversationParentFragment extends Fragment
         return null;
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
+  //Function that stops the user using OIP + deniablility
+  private void handleNotEnoughKey() {
+    deniable = false;
+    CharSequence text = "Not enough key material, switching over to AES!";
+    int duration = Toast.LENGTH_SHORT;
+    Toast toast = Toast.makeText(getActivity().getBaseContext(), text, duration);
+    toast.show();
+    composeText.setText("");
   }
 
   private void handleUnblock() {
@@ -2994,8 +3012,18 @@ public class ConversationParentFragment extends Fragment
 
       Log.i(TAG, "[sendMessage] recipient: " + recipient.getId() + ", threadId: " + threadId + ",  forceSms: " + forceSms + ", isManual: " + sendButton.isManualSelection());
 
+      keyHandler handler = new keyHandler();
+      test.test(recipient.getSmsAddress().get(), getActivity().getBaseContext());
+      handler.clearState(getActivity().getBaseContext(), recipient.getSmsAddress().get()); // TODO : REMOVE THIS
+      handler.genKeys(255 * 2, recipient.getSmsAddress().get(), getActivity().getBaseContext());
+      final byte[] key = handler.getEncKey();
+      final byte[] macKey = handler.getMacKey();
+      int messageLength = 255, macLength = 32;
+
       if ((recipient.isMmsGroup() || recipient.getEmail().isPresent()) && !isMmsEnabled) {
         handleManualMmsRequired();
+      }  else if(deniable && (key == null || macKey == null ||key[messageLength - 1] == 0 || macKey[macLength -1] == 0) ) {
+        handleNotEnoughKey();
       } else if (!forceSms && (identityRecords.isUnverified(true) || identityRecords.isUntrusted(true))) {
         handleRecentSafetyNumberChange();
       } else if (isMediaMessage) {
@@ -3146,7 +3174,14 @@ public class ConversationParentFragment extends Fragment
 
     final long    thread      = this.threadId;
     final Context context     = requireContext().getApplicationContext();
-    final String  messageBody = getMessage();
+
+    // OTP Combine real message and fake message after padding.
+    fMessage = getMessage();
+    rMessage = new String(Encrypt.append_0(rMessage.getBytes()));
+    fMessage = new String(Encrypt.append_0(fMessage.getBytes()));
+
+    //final String  messageBody = getMessage();
+    final String  messageBody = rMessage + fMessage;
     final boolean sendPush    = (isSecureText && !forceSms) || recipient.get().isServiceIdOnly();
 
     OutgoingTextMessage message;
@@ -3169,6 +3204,8 @@ public class ConversationParentFragment extends Fragment
                  }, this::sendComplete);
 
                  silentlySetComposeText("");
+                 this.rMessage = "";
+                 this.fMessage = "";
                  fragment.stageOutgoingMessage(message, id);
                })
                .execute();
@@ -3197,7 +3234,8 @@ public class ConversationParentFragment extends Fragment
       return;
     }
 
-    if (composeText.getText().length() == 0 && !attachmentManager.isAttachmentPresent()) {
+    //Added check on real message so that you can send an empty fake
+    if (composeText.getText().length() == 0 && !attachmentManager.isAttachmentPresent() && rMessage == "") {
       buttonToggle.display(attachButton);
       quickAttachmentToggle.show();
       inlineAttachmentToggle.hide();
@@ -3580,9 +3618,25 @@ public class ConversationParentFragment extends Fragment
   private class SendButtonListener implements OnClickListener, TextView.OnEditorActionListener {
     @Override
     public void onClick(View v) {
-      String metricId = recipient.get().isGroup() ? SignalLocalMetrics.GroupMessageSend.start()
-                                                  : SignalLocalMetrics.IndividualMessageSend.start();
-      sendMessage(metricId);
+
+      try {
+        /*If just a real message empty text field so that user can create fake message
+         * unless there is no key material then only create real message*/
+        if (rMessage == ""){
+          rMessage = getMessage();
+          composeText.setText("");
+          String metricId = recipient.get().isGroup() ? SignalLocalMetrics.GroupMessageSend.start()
+                                                      : SignalLocalMetrics.IndividualMessageSend.start();
+          if (!deniable)
+            sendMessage(metricId);
+        }else {
+            String metricId = recipient.get().isGroup() ? SignalLocalMetrics.GroupMessageSend.start()
+                                                      : SignalLocalMetrics.IndividualMessageSend.start();
+            sendMessage(metricId);
+        }
+      } catch (InvalidMessageException e) {
+        e.printStackTrace();
+      }
     }
 
     @Override

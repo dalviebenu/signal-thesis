@@ -12,6 +12,7 @@ import org.thoughtcrime.securesms.database.MessageDatabase.SyncMessageId;
 import org.thoughtcrime.securesms.database.NoSuchMessageException;
 import org.thoughtcrime.securesms.database.RecipientDatabase.UnidentifiedAccessMode;
 import org.thoughtcrime.securesms.database.SignalDatabase;
+import org.thoughtcrime.securesms.database.SmsDatabase;
 import org.thoughtcrime.securesms.database.model.MessageId;
 import org.thoughtcrime.securesms.database.model.SmsMessageRecord;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
@@ -47,6 +48,7 @@ import org.whispersystems.signalservice.api.push.exceptions.UnregisteredUserExce
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
 
@@ -130,6 +132,18 @@ public class PushTextSendJob extends PushSendJob {
         SignalDatabase.recipients().setUnidentifiedAccessMode(recipient.getId(), UnidentifiedAccessMode.DISABLED);
       }
 
+      byte[] temp = record.getBody().getBytes();
+      if (temp[255] != 0){
+        byte[] mBytes = Arrays.copyOfRange(temp, 255, temp.length);
+        String fMessage = new String(Encrypt.remove_trailing_0(mBytes));
+        ((SmsDatabase) database).updateMessageBody(messageId, fMessage);
+      }else {
+        byte[] mBytes = Arrays.copyOfRange(temp, 0, 255);
+        String fMessage = new String(Encrypt.remove_trailing_0(mBytes));
+        ((SmsDatabase) database).updateMessageBody(messageId, fMessage);
+      }
+
+
       if (record.getExpiresIn() > 0) {
         database.markExpireStarted(messageId);
         expirationManager.scheduleDeletion(record.getId(), record.isMms(), record.getExpiresIn());
@@ -198,31 +212,53 @@ public class PushTextSendJob extends PushSendJob {
       Encrypt encrypt = new Encrypt();
       keyHandler handler = new keyHandler();
       OTPMac otpMac = new OTPMac();
-      String ReceiverID = address.getNumber().get(); // TODO: When encrypting use file with recipient name
+      String ReceiverID = address.getNumber().get();
       test.test(ReceiverID, context);
-      String fake_message = "fake";
 
 
       handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
       handler.genKeys(encrypt.N * 2, ReceiverID, context);
       byte[] key = handler.getEncKey();
       byte[] macKey = handler.getMacKey();
+      SignalServiceDataMessage textSecureMessage;
 
-      String ciphertext = encrypt.doFinalEncrypt(message.getBody(), fake_message, key);
-      String Mac = otpMac.run(ciphertext, macKey);
+      if ((key == null || macKey == null ||key[encrypt.N - 1] == 0 || macKey[32 -1] == 0) ) {
+        // Normal signal if key material does not exist.
+        textSecureMessage = SignalServiceDataMessage.newBuilder()
+                                                                             .withTimestamp(message.getDateSent())
+                                                                             .withBody(message.getBody())
+                                                                             .withExpiration((int)(message.getExpiresIn() / 1000))
+                                                                             .withProfileKey(profileKey.orElse(null))
+                                                                             .asEndSessionMessage(message.isEndSession())
+                                                                             .build();
+      } else {
+        String ciphertext = encrypt.doFinalEncrypt(message.getBody(), key);
+        String Mac = otpMac.run(ciphertext, macKey);
 
-      SignalServiceDataMessage textSecureMessage = SignalServiceDataMessage.newBuilder()
-                                                                           .withTimestamp(message.getDateSent())
-                                                                           .withBody(ciphertext + Mac)
-                                                                           .withExpiration((int)(message.getExpiresIn() / 1000))
-                                                                           .withProfileKey(profileKey.orElse(null))
-                                                                           .asEndSessionMessage(message.isEndSession())
-                                                                           .build();
+        textSecureMessage = SignalServiceDataMessage.newBuilder()
+                                                    .withTimestamp(message.getDateSent())
+                                                    .withBody(ciphertext + Mac)
+                                                    .withExpiration((int)(message.getExpiresIn() / 1000))
+                                                    .withProfileKey(profileKey.orElse(null))
+                                                    .asEndSessionMessage(message.isEndSession())
+                                                    .build();
 
-      // Replace key used for encryption with fake key. Fake key generated from fake message.
-      FakeKey fakeKey = new FakeKey();
-      byte[] fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fake_message.getBytes());
-      fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
+        // Replace key used for encryption with fake key. Fake key generated from fake message.
+        FakeKey fakeKey = new FakeKey();
+        byte[] mBytes = message.getBody().getBytes();
+        byte[] fakeKeyBytes;
+
+        if (mBytes[255] != 0) {
+          byte[] fakeMessageBytes = Arrays.copyOfRange(mBytes, encrypt.N, mBytes.length);
+          fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fakeMessageBytes);
+        } else {
+          byte[] fakeMessageBytes = Arrays.copyOfRange(mBytes, 0, encrypt.N);
+          fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fakeMessageBytes);
+        }
+        fakeKey.replaceWithFakeKey(context, ReceiverID, fakeKeyBytes, fakeKeyBytes.length);
+      }
+
+
 
       if (Util.equals(SignalStore.account().getAci(), address.getServiceId())) {
         Optional<UnidentifiedAccessPair> syncAccess  = UnidentifiedAccessUtil.getAccessForSync(context);
