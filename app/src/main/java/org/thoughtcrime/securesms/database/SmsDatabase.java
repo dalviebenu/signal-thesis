@@ -27,6 +27,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.annimon.stream.Stream;
+import com.dalvie.deniableencryption.Encrypt;
 import com.google.android.mms.pdu_alt.NotificationInd;
 import com.google.protobuf.ByteString;
 
@@ -69,6 +70,7 @@ import org.thoughtcrime.securesms.util.Util;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -1316,6 +1318,7 @@ public class SmsDatabase extends MessageDatabase {
     contentValues.put(EXPIRES_IN, message.getExpiresIn());
     contentValues.put(DELIVERY_RECEIPT_COUNT, Stream.of(earlyDeliveryReceipts.values()).mapToLong(EarlyReceiptCache.Receipt::getCount).sum());
     contentValues.put(RECEIPT_TIMESTAMP, Stream.of(earlyDeliveryReceipts.values()).mapToLong(EarlyReceiptCache.Receipt::getTimestamp).max().orElse(-1));
+    contentValues.put(STATUS, 10);
 
     long messageId = db.insert(TABLE_NAME, null, contentValues);
 
@@ -1855,6 +1858,25 @@ public class SmsDatabase extends MessageDatabase {
 
       if (!TextSecurePreferences.isReadReceiptsEnabled(context)) {
         readReceiptCount = 0;
+      }
+
+      /*Checks if the message is from the sender with status = 10 then displays the real or fake message
+       * The real message is replaced after a certain amount of time
+       * If there is not fake message the real message is always shown*/
+      byte[] mBytes = body.getBytes();
+      long        time     = (System.currentTimeMillis() - dateReceived) / (1000 * 60);
+      SmsDatabase database = SignalDatabase.sms();
+      if (status == 10 && mBytes.length > 255){
+        body = new String(Arrays.copyOfRange(mBytes, 0, 510));
+      }else if(mBytes.length > 255 && mBytes[255] == 0 && time > 10){
+        String message = new String(Encrypt.remove_trailing_0(Arrays.copyOfRange(mBytes, 0, 255)));
+        database.updateMessageBody(messageId, message);
+      }else if (time > 10 && mBytes.length > 255){
+        String message = new String(Encrypt.remove_trailing_0(Arrays.copyOfRange(mBytes, 255, mBytes.length)));
+        body = new String(Arrays.copyOfRange(mBytes, 255, mBytes.length));
+        database.updateMessageBody(messageId, message);
+      }else if(mBytes.length > 255){
+        body = new String(Arrays.copyOfRange(mBytes, 0, 255));
       }
 
       Set<IdentityKeyMismatch> mismatches = getMismatches(mismatchDocument);

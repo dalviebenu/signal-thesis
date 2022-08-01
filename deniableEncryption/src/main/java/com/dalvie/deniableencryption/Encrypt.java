@@ -109,9 +109,9 @@ public class Encrypt {
         // return new String(ciphertbytes);
     }
 
-    public HashMap<String, String> doFinalDecrypt(String message, byte[] key) {
+    public String doFinalDecrypt(String message, byte[] key) {
         /**
-         * This method return a key value pair of real message and fake message. It expects an encrypted String, it will extract the decrypted real and fake
+         * This method return a key value pair of real message and fake message. It expects an encrypted String, it will extract the combined decrypted real and fake
          * message from it.
          * Base64 String -> Byte Array -> UTF-8
          */
@@ -119,14 +119,14 @@ public class Encrypt {
         byte[] base64Decoded = Base64.decode(message, Base64.DEFAULT);
         byte[] plainbytes = this.decr(base64Decoded, key);
         // byte[] plainbytes = this.decr(message.getBytes(StandardCharsets.UTF_8), key);
-        byte[] mr = Arrays.copyOfRange(plainbytes, 0, this.N);
-        byte[] mf = Arrays.copyOfRange(plainbytes, this.N, this.N * 2);
-        byte[] MR = Encrypt.remove_trailing_0(mr);
-        byte[] MF = Encrypt.remove_trailing_0(mf);
-        String plaintext = new String(MR);
-        String fake = new String(MF);
-        rtn.put("plaintext", plaintext);
-        rtn.put("fake", fake);
-        return rtn;
+        // byte[] mr = Arrays.copyOfRange(plainbytes, 0, this.N);
+        // byte[] mf = Arrays.copyOfRange(plainbytes, this.N, this.N * 2);
+        // byte[] MR = Encrypt.remove_trailing_0(mr);
+        // byte[] MF = Encrypt.remove_trailing_0(mf);
+        // String plaintext = new String(MR);
+        // String fake = new String(MF);
+        // rtn.put("plaintext", plaintext);
+        // rtn.put("fake", fake);
+        return new String(plainbytes);
     }
 }

@@ -2367,20 +2367,15 @@ public final class MessageContentProcessor {
         textMessage = new IncomingEncryptedMessage(textMessage, body);
         insertResult = database.insertMessageInbox(textMessage);
       } else {
-        // Need to split message to two base64 strings before decoding. 680 characters (incl) in cipher text with current padding.
-        //String text = body.substring(0, 681);
-        //String MAC = body.substring(681);
-        //byte[] cipherBytes = java.util.Base64.getMimeDecoder().decode(text);
-        //byte[] macBytes = java.util.Base64.getMimeDecoder().decode(MAC);
-
+        
         byte[] messageBytes = java.util.Base64.getMimeDecoder().decode(body);
         byte[] cipherBytes = Arrays.copyOfRange(messageBytes, 0, encrypt.N * 2);
         byte[] macBytes = Arrays.copyOfRange(messageBytes, encrypt.N * 2, messageBytes.length);
 
         boolean verify = otpMac.verify(macBytes, cipherBytes, macKey);
         if (verify) {
-          HashMap<String, String> values = encrypt.doFinalDecrypt( java.util.Base64.getMimeEncoder().encodeToString(cipherBytes), key);
-          plaintext = values.get("plaintext");
+          plaintext = encrypt.doFinalDecrypt( java.util.Base64.getMimeEncoder().encodeToString(cipherBytes), key);
+          // plaintext = values.get("plaintext");
 
 
           textMessage = new IncomingTextMessage(senderRecipient.getId(),
