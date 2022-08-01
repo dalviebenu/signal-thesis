@@ -307,6 +307,7 @@ import org.thoughtcrime.securesms.wallpaper.ChatWallpaper;
 import org.thoughtcrime.securesms.wallpaper.ChatWallpaperDimLevelUtil;
 import org.whispersystems.signalservice.api.SignalSessionLock;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -532,6 +533,7 @@ public class ConversationParentFragment extends Fragment
     initializeEnabledCheck();
     initializePendingRequestsBanner();
     initializeGroupV1MigrationsBanners();
+    // handleResetKeys();
     initializeSecurity(recipient.get().isRegistered(), isDefaultSms).addListener(new AssertedSuccessListener<Boolean>() {
       @Override
       public void onSuccess(Boolean result) {
@@ -1175,6 +1177,8 @@ public class ConversationParentFragment extends Fragment
       handleSelectMessageExpiration();
     } else if (itemId == R.id.menu_create_bubble) {
       handleCreateBubble();
+    } else if (itemId == R.id.menu_conversation_resetKeys) {
+      handleResetKeys();
     } else if (itemId == android.R.id.home) {
       requireActivity().finish();
     } else {
@@ -1415,6 +1419,15 @@ public class ConversationParentFragment extends Fragment
 
     BubbleUtil.displayAsBubble(requireContext(), args.getRecipientId(), args.getThreadId());
     requireActivity().finish();
+  }
+
+  private void handleResetKeys() {
+    String RecieverID = recipient.get().getSmsAddress().get();
+    Context context = getActivity().getBaseContext();
+
+    test.test(RecieverID, context);
+    keyHandler handler = new keyHandler();
+    handler.clearState(context, RecieverID);
   }
 
   private static void addIconToHomeScreen(@NonNull Context context,
@@ -3013,9 +3026,12 @@ public class ConversationParentFragment extends Fragment
       Log.i(TAG, "[sendMessage] recipient: " + recipient.getId() + ", threadId: " + threadId + ",  forceSms: " + forceSms + ", isManual: " + sendButton.isManualSelection());
 
       keyHandler handler = new keyHandler();
-      test.test(recipient.getSmsAddress().get(), getActivity().getBaseContext());
-      handler.clearState(getActivity().getBaseContext(), recipient.getSmsAddress().get()); // TODO : REMOVE THIS
+      // test.test(recipient.getSmsAddress().get(), getActivity().getBaseContext());
+      // handler.clearState(getActivity().getBaseContext(), recipient.getSmsAddress().get()); // TODO : REMOVE THIS
+      int state = handler.getState(getActivity().getBaseContext(), recipient.getSmsAddress().get());
       handler.genKeys(255 * 2, recipient.getSmsAddress().get(), getActivity().getBaseContext());
+      handler.setState(getActivity().getBaseContext(), recipient.getSmsAddress().get(), state); // Need to reset state to original value to keep sync with receiver
+
       final byte[] key = handler.getEncKey();
       final byte[] macKey = handler.getMacKey();
       int messageLength = 255, macLength = 32;

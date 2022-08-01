@@ -11,34 +11,9 @@ import android.util.Base64;
 public class Encrypt {
 
     private static int n = 255;
-    int state;
-    SecureRandom rng;
-    int SIZE = 100;
-    byte keys[];
     public final int N = 255;
 
     public Encrypt(){
-        byte[] seed = {42, 69, 30};
-        state = 0;
-        try {
-            rng = new SecureRandom();
-            rng = SecureRandom.getInstance("SHA1PRNG");
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
-        rng.setSeed(seed); // replace this later so that rnd byte array is common between encr and decr
-        keys = generate_array(SIZE);
-    }
-
-
-    private byte[] generate_array(int size) { // this array should be shared. (key material)
-        byte bytes[] = new byte[size];
-        rng.nextBytes(bytes);
-        return bytes;
-    }
-
-    public void update_key(byte[] key) {
-        this.keys = key;
     }
 
     public byte[] encr(byte[] byte_message, byte[] key) {

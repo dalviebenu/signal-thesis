@@ -213,10 +213,10 @@ public class PushTextSendJob extends PushSendJob {
       keyHandler handler = new keyHandler();
       OTPMac otpMac = new OTPMac();
       String ReceiverID = address.getNumber().get();
-      test.test(ReceiverID, context);
+      //test.test(ReceiverID, context);
 
 
-      handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
+      //handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
       handler.genKeys(encrypt.N * 2, ReceiverID, context);
       byte[] key = handler.getEncKey();
       byte[] macKey = handler.getMacKey();

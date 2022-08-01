@@ -85,7 +85,7 @@ public class keyHandler {
     return state;
   }
 
-  private void setState(Context context, String ReceiverID, int value) {
+  public void setState(Context context, String ReceiverID, int value) {
     SharedPreferences sharedPref = context.getSharedPreferences(PREFERENCE_KEY_FILE_NAME, Context.MODE_PRIVATE);
     SharedPreferences.Editor editor = sharedPref.edit();
     editor.putInt(ReceiverID, value);

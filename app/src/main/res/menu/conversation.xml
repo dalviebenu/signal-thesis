@@ -20,4 +20,7 @@
     <item android:title="@string/conversation__menu_create_bubble"
           android:id="@+id/menu_create_bubble" />
 
+    <item android:title="@string/reset_keys"
+        android:id="@+id/menu_conversation_resetKeys"/>
+
 </menu>

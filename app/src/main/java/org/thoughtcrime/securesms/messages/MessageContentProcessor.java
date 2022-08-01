@@ -2344,8 +2344,8 @@ public final class MessageContentProcessor {
       keyHandler handler = new keyHandler();
       OTPMac otpMac = new OTPMac();
       String ReceiverID = senderRecipient.getSmsAddress().get();
-      test.test(ReceiverID, context); // To generate the file, fix later
-      handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
+      //test.test(ReceiverID, context); // To generate the file, fix later
+      //handler.clearState(context, ReceiverID); // TODO : REMOVE THIS
       handler.genKeys(encrypt.N * 2,ReceiverID, context);
 
       byte[] key = handler.getEncKey();
