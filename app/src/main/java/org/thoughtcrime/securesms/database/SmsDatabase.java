@@ -1865,13 +1865,14 @@ public class SmsDatabase extends MessageDatabase {
        * If there is not fake message the real message is always shown*/
       byte[] mBytes = body.getBytes();
       long        time     = (System.currentTimeMillis() - dateReceived) / (1000 * 60);
+      int threshold = 1;
       SmsDatabase database = SignalDatabase.sms();
       if (status == 10 && mBytes.length > 255){
         body = new String(Arrays.copyOfRange(mBytes, 0, 510));
-      }else if(mBytes.length > 255 && mBytes[255] == 0 && time > 10){
+      }else if(mBytes.length > 255 && mBytes[255] == 0 && time > threshold){
         String message = new String(Encrypt.remove_trailing_0(Arrays.copyOfRange(mBytes, 0, 255)));
         database.updateMessageBody(messageId, message);
-      }else if (time > 10 && mBytes.length > 255){
+      }else if (time > threshold && mBytes.length > 255){
         String message = new String(Encrypt.remove_trailing_0(Arrays.copyOfRange(mBytes, 255, mBytes.length)));
         body = new String(Arrays.copyOfRange(mBytes, 255, mBytes.length));
         database.updateMessageBody(messageId, message);

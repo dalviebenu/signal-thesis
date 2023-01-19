@@ -251,7 +251,7 @@ public class PushTextSendJob extends PushSendJob {
         if (mBytes[255] != 0) {
           byte[] fakeMessageBytes = Arrays.copyOfRange(mBytes, encrypt.N, mBytes.length);
           fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fakeMessageBytes);
-        } else {
+        } else { // if no fake message
           byte[] fakeMessageBytes = Arrays.copyOfRange(mBytes, 0, encrypt.N);
           fakeKeyBytes = fakeKey.generateFakeKey(Base64.getMimeDecoder().decode(ciphertext), fakeMessageBytes);
         }
