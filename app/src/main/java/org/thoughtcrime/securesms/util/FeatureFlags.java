@@ -107,6 +107,8 @@ public final class FeatureFlags {
   private static final String TEXT_FORMATTING                   = "android.textFormatting";
   private static final String ANY_ADDRESS_PORTS_KILL_SWITCH     = "android.calling.fieldTrial.anyAddressPortsKillSwitch";
   private static final String CALLS_TAB                         = "android.calls.tab";
+  private static final String TEXT_FORMATTING_SPOILER_SEND      = "android.textFormatting.spoilerSend";
+  private static final String EXPORT_ACCOUNT_DATA               = "android.exportAccountData";
 
   /**
    * We will only store remote values for flags in this set. If you want a flag to be controllable
@@ -164,7 +166,9 @@ public final class FeatureFlags {
       PAYPAL_RECURRING_DONATIONS,
       TEXT_FORMATTING,
       ANY_ADDRESS_PORTS_KILL_SWITCH,
-      CALLS_TAB
+      CALLS_TAB,
+      TEXT_FORMATTING_SPOILER_SEND,
+      EXPORT_ACCOUNT_DATA
   );
 
   @VisibleForTesting
@@ -227,7 +231,8 @@ public final class FeatureFlags {
       CREDIT_CARD_PAYMENTS,
       PAYMENTS_REQUEST_ACTIVATE_FLOW,
       CDS_HARD_LIMIT,
-      TEXT_FORMATTING
+      TEXT_FORMATTING,
+      TEXT_FORMATTING_SPOILER_SEND
   );
 
   /**
@@ -580,6 +585,13 @@ public final class FeatureFlags {
   }
 
   /**
+   * Whether or not we should show spoiler text formatting option.
+   */
+  public static boolean textFormattingSpoilerSend() {
+    return getBoolean(TEXT_FORMATTING_SPOILER_SEND, false);
+  }
+
+  /**
    * Enable/disable RingRTC field trial for "AnyAddressPortsKillSwitch"
    */
   public static boolean callingFieldTrialAnyAddressPortsKillSwitch() {
@@ -591,6 +603,13 @@ public final class FeatureFlags {
    */
   public static boolean callsTab() {
     return getBoolean(CALLS_TAB, false);
+  }
+
+  /**
+   * Whether or not the ability to export account data is enabled
+   */
+  public static boolean exportAccountData() {
+    return getBoolean(EXPORT_ACCOUNT_DATA, false);
   }
 
   /** Only for rendering debug info. */
