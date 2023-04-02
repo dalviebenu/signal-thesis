@@ -3,6 +3,7 @@ package org.thoughtcrime.securesms.jobs;
 import android.content.Context;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
 import com.annimon.stream.Collectors;
@@ -11,14 +12,14 @@ import com.google.protobuf.InvalidProtocolBufferException;
 
 import org.signal.core.util.logging.Log;
 import org.signal.storageservice.protos.groups.local.DecryptedGroup;
-import org.thoughtcrime.securesms.database.RecipientDatabase;
+import org.thoughtcrime.securesms.database.RecipientTable;
 import org.thoughtcrime.securesms.groups.GroupId;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.messages.GroupSendUtil;
 import org.thoughtcrime.securesms.mms.MessageGroupContext;
-import org.thoughtcrime.securesms.mms.OutgoingGroupUpdateMessage;
+import org.thoughtcrime.securesms.mms.OutgoingMessage;
 import org.thoughtcrime.securesms.net.NotPushRegisteredException;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
@@ -68,7 +69,7 @@ public final class PushGroupSilentUpdateSendJob extends BaseJob {
   public static @NonNull Job create(@NonNull Context context,
                                     @NonNull GroupId.V2 groupId,
                                     @NonNull DecryptedGroup decryptedGroup,
-                                    @NonNull OutgoingGroupUpdateMessage groupMessage)
+                                    @NonNull OutgoingMessage groupMessage)
   {
     List<UUID> memberUuids  = DecryptedGroupUtil.toUuidList(decryptedGroup.getMembersList());
     List<UUID> pendingUuids = DecryptedGroupUtil.pendingToUuidList(decryptedGroup.getPendingMembersList());
@@ -76,15 +77,15 @@ public final class PushGroupSilentUpdateSendJob extends BaseJob {
     Set<RecipientId> recipients = Stream.concat(Stream.of(memberUuids), Stream.of(pendingUuids))
                                         .filter(uuid -> !UuidUtil.UNKNOWN_UUID.equals(uuid))
                                         .filter(uuid -> !SignalStore.account().requireAci().uuid().equals(uuid))
-                                        .map(uuid -> Recipient.externalPush(ServiceId.from(uuid), null, false))
-                                        .filter(recipient -> recipient.getRegistered() != RecipientDatabase.RegisteredState.NOT_REGISTERED)
+                                        .map(uuid -> Recipient.externalPush(ServiceId.from(uuid)))
+                                        .filter(recipient -> recipient.getRegistered() != RecipientTable.RegisteredState.NOT_REGISTERED)
                                         .map(Recipient::getId)
                                         .collect(Collectors.toSet());
 
     MessageGroupContext.GroupV2Properties properties   = groupMessage.requireGroupV2Properties();
     SignalServiceProtos.GroupContextV2    groupContext = properties.getGroupContext();
 
-    String queue = Recipient.externalGroupExact(context, groupId).getId().toQueueKey();
+    String queue = Recipient.externalGroupExact(groupId).getId().toQueueKey();
 
     return new PushGroupSilentUpdateSendJob(new ArrayList<>(recipients),
                                             recipients.size(),
@@ -112,12 +113,12 @@ public final class PushGroupSilentUpdateSendJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_RECIPIENTS, RecipientId.toSerializedList(recipients))
-                             .putInt(KEY_INITIAL_RECIPIENT_COUNT, initialRecipientCount)
-                             .putLong(KEY_TIMESTAMP, timestamp)
-                             .putString(KEY_GROUP_CONTEXT_V2, Base64.encodeBytes(groupContextV2.toByteArray()))
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_RECIPIENTS, RecipientId.toSerializedList(recipients))
+                                    .putInt(KEY_INITIAL_RECIPIENT_COUNT, initialRecipientCount)
+                                    .putLong(KEY_TIMESTAMP, timestamp)
+                                    .putString(KEY_GROUP_CONTEXT_V2, Base64.encodeBytes(groupContextV2.toByteArray()))
+                                    .serialize();
   }
 
   @Override
@@ -133,7 +134,7 @@ public final class PushGroupSilentUpdateSendJob extends BaseJob {
 
     GroupId.V2 groupId = GroupId.v2(GroupUtil.requireMasterKey(groupContextV2.getMasterKey().toByteArray()));
 
-    if (Recipient.externalGroupExact(context, groupId).isBlocked()) {
+    if (Recipient.externalGroupExact(groupId).isBlocked()) {
       Log.i(TAG, "Not updating group state for blocked group " + groupId);
       return;
     }
@@ -175,14 +176,16 @@ public final class PushGroupSilentUpdateSendJob extends BaseJob {
                                                                         .asGroupMessage(group)
                                                                         .build();
 
-    List<SendMessageResult> results = GroupSendUtil.sendUnresendableDataMessage(context, groupId, destinations, false, ContentHint.IMPLICIT, groupDataMessage);
+    List<SendMessageResult> results = GroupSendUtil.sendUnresendableDataMessage(context, groupId, destinations, false, ContentHint.IMPLICIT, groupDataMessage, false);
 
     return GroupSendJobHelper.getCompletedSends(destinations, results).completed;
   }
 
   public static class Factory implements Job.Factory<PushGroupSilentUpdateSendJob> {
     @Override
-    public @NonNull PushGroupSilentUpdateSendJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull PushGroupSilentUpdateSendJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       List<RecipientId> recipients            = RecipientId.fromSerializedList(data.getString(KEY_RECIPIENTS));
       int               initialRecipientCount = data.getInt(KEY_INITIAL_RECIPIENT_COUNT);
       long              timestamp             = data.getLong(KEY_TIMESTAMP);

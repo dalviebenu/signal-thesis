@@ -1,6 +1,7 @@
 package org.thoughtcrime.securesms.push
 
 import android.content.Context
+import com.google.i18n.phonenumbers.PhoneNumberUtil
 import okhttp3.CipherSuite
 import okhttp3.ConnectionSpec
 import okhttp3.Dns
@@ -17,12 +18,10 @@ import org.thoughtcrime.securesms.net.RemoteDeprecationDetectorInterceptor
 import org.thoughtcrime.securesms.net.SequentialDns
 import org.thoughtcrime.securesms.net.StandardUserAgentInterceptor
 import org.thoughtcrime.securesms.net.StaticDns
-import org.thoughtcrime.securesms.phonenumbers.PhoneNumberFormatter
 import org.thoughtcrime.securesms.util.Base64
 import org.whispersystems.signalservice.api.push.TrustStore
 import org.whispersystems.signalservice.internal.configuration.SignalCdnUrl
 import org.whispersystems.signalservice.internal.configuration.SignalCdsiUrl
-import org.whispersystems.signalservice.internal.configuration.SignalContactDiscoveryUrl
 import org.whispersystems.signalservice.internal.configuration.SignalKeyBackupServiceUrl
 import org.whispersystems.signalservice.internal.configuration.SignalServiceConfiguration
 import org.whispersystems.signalservice.internal.configuration.SignalServiceUrl
@@ -34,7 +33,7 @@ import java.util.Optional
  * Provides a [SignalServiceConfiguration] to be used with our service layer.
  * If you're looking for a place to start, look at [getConfiguration].
  */
-class SignalServiceNetworkAccess(context: Context) {
+open class SignalServiceNetworkAccess(context: Context) {
   companion object {
     private val TAG = Log.tag(SignalServiceNetworkAccess::class.java)
 
@@ -51,7 +50,7 @@ class SignalServiceNetworkAccess(context: Context) {
           BuildConfig.SIGNAL_CONTACT_DISCOVERY_URL.stripProtocol() to BuildConfig.SIGNAL_CDS_IPS.toSet(),
           BuildConfig.SIGNAL_KEY_BACKUP_URL.stripProtocol() to BuildConfig.SIGNAL_KBS_IPS.toSet(),
           BuildConfig.SIGNAL_SFU_URL.stripProtocol() to BuildConfig.SIGNAL_SFU_IPS.toSet(),
-          BuildConfig.CONTENT_PROXY_HOST.stripProtocol() to BuildConfig.SIGNAL_CONTENT_PROXY_IPS.toSet(),
+          BuildConfig.CONTENT_PROXY_HOST.stripProtocol() to BuildConfig.SIGNAL_CONTENT_PROXY_IPS.toSet()
         )
       )
     )
@@ -69,12 +68,12 @@ class SignalServiceNetworkAccess(context: Context) {
     private const val COUNTRY_CODE_UZBEKISTAN = 998
     private const val COUNTRY_CODE_UKRAINE = 380
 
-    private const val G_HOST = "europe-west1-signal-cdn-reflector.cloudfunctions.net"
-    private const val F_SERVICE_HOST = "textsecure-service.whispersystems.org.global.prod.fastly.net"
+    private const val G_HOST = "reflector-nrgwuv7kwq-uc.a.run.app"
+    private const val F_SERVICE_HOST = "chat-signal.global.ssl.fastly.net"
     private const val F_STORAGE_HOST = "storage.signal.org.global.prod.fastly.net"
     private const val F_CDN_HOST = "cdn.signal.org.global.prod.fastly.net"
     private const val F_CDN2_HOST = "cdn2.signal.org.global.prod.fastly.net"
-    private const val F_DIRECTORY_HOST = "api.directory.signal.org.global.prod.fastly.net"
+    private const val F_CDSI_HOST = "cdsi-signal.global.ssl.fastly.net"
     private const val F_KBS_HOST = "api.backup.signal.org.global.prod.fastly.net"
 
     private val GMAPS_CONNECTION_SPEC = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
@@ -155,7 +154,7 @@ class SignalServiceNetworkAccess(context: Context) {
     HostConfig("https://android.clients.google.com", G_HOST, PLAY_CONNECTION_SPEC),
     HostConfig("https://clients3.google.com", G_HOST, GMAPS_CONNECTION_SPEC),
     HostConfig("https://clients4.google.com", G_HOST, GMAPS_CONNECTION_SPEC),
-    HostConfig("https://inbox.google.com", G_HOST, GMAIL_CONNECTION_SPEC),
+    HostConfig("https://inbox.google.com", G_HOST, GMAIL_CONNECTION_SPEC)
   )
 
   private val fUrls = arrayOf("https://cdn.sstatic.net", "https://github.githubassets.com", "https://pinterest.com", "https://open.scdn.co", "https://www.redditstatic.com")
@@ -164,12 +163,11 @@ class SignalServiceNetworkAccess(context: Context) {
     fUrls.map { SignalServiceUrl(it, F_SERVICE_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
     mapOf(
       0 to fUrls.map { SignalCdnUrl(it, F_CDN_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
-      2 to fUrls.map { SignalCdnUrl(it, F_CDN2_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
+      2 to fUrls.map { SignalCdnUrl(it, F_CDN2_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray()
     ),
-    fUrls.map { SignalContactDiscoveryUrl(it, F_DIRECTORY_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
     fUrls.map { SignalKeyBackupServiceUrl(it, F_KBS_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
     fUrls.map { SignalStorageUrl(it, F_STORAGE_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
-    arrayOf(SignalCdsiUrl(BuildConfig.SIGNAL_CDSI_URL, serviceTrustStore)),
+    fUrls.map { SignalCdsiUrl(it, F_CDSI_HOST, fTrustStore, APP_CONNECTION_SPEC) }.toTypedArray(),
     interceptors,
     Optional.of(DNS),
     Optional.empty(),
@@ -178,25 +176,25 @@ class SignalServiceNetworkAccess(context: Context) {
 
   private val censorshipConfiguration: Map<Int, SignalServiceConfiguration> = mapOf(
     COUNTRY_CODE_EGYPT to buildGConfiguration(
-      listOf(HostConfig("https://www.google.com.eg", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.com.eg", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_UAE to buildGConfiguration(
-      listOf(HostConfig("https://www.google.ae", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.ae", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_OMAN to buildGConfiguration(
-      listOf(HostConfig("https://www.google.com.om", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.com.om", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_QATAR to buildGConfiguration(
-      listOf(HostConfig("https://www.google.com.qa", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.com.qa", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_UZBEKISTAN to buildGConfiguration(
-      listOf(HostConfig("https://www.google.co.uz", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.co.uz", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_UKRAINE to buildGConfiguration(
-      listOf(HostConfig("https://www.google.com.ua", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs,
+      listOf(HostConfig("https://www.google.com.ua", G_HOST, GMAIL_CONNECTION_SPEC)) + baseGHostConfigs
     ),
     COUNTRY_CODE_IRAN to fConfig,
-    COUNTRY_CODE_CUBA to fConfig,
+    COUNTRY_CODE_CUBA to fConfig
   )
 
   private val defaultCensoredConfiguration: SignalServiceConfiguration = buildGConfiguration(baseGHostConfigs)
@@ -208,16 +206,15 @@ class SignalServiceNetworkAccess(context: Context) {
     COUNTRY_CODE_QATAR,
     COUNTRY_CODE_IRAN,
     COUNTRY_CODE_CUBA,
-    COUNTRY_CODE_UZBEKISTAN,
+    COUNTRY_CODE_UZBEKISTAN
   )
 
-  val uncensoredConfiguration: SignalServiceConfiguration = SignalServiceConfiguration(
+  open val uncensoredConfiguration: SignalServiceConfiguration = SignalServiceConfiguration(
     arrayOf(SignalServiceUrl(BuildConfig.SIGNAL_URL, serviceTrustStore)),
     mapOf(
       0 to arrayOf(SignalCdnUrl(BuildConfig.SIGNAL_CDN_URL, serviceTrustStore)),
       2 to arrayOf(SignalCdnUrl(BuildConfig.SIGNAL_CDN2_URL, serviceTrustStore))
     ),
-    arrayOf(SignalContactDiscoveryUrl(BuildConfig.SIGNAL_CONTACT_DISCOVERY_URL, serviceTrustStore)),
     arrayOf(SignalKeyBackupServiceUrl(BuildConfig.SIGNAL_KEY_BACKUP_URL, serviceTrustStore)),
     arrayOf(SignalStorageUrl(BuildConfig.STORAGE_URL, serviceTrustStore)),
     arrayOf(SignalCdsiUrl(BuildConfig.SIGNAL_CDSI_URL, serviceTrustStore)),
@@ -227,16 +224,16 @@ class SignalServiceNetworkAccess(context: Context) {
     zkGroupServerPublicParams
   )
 
-  fun getConfiguration(): SignalServiceConfiguration {
+  open fun getConfiguration(): SignalServiceConfiguration {
     return getConfiguration(SignalStore.account().e164)
   }
 
-  fun getConfiguration(localNumber: String?): SignalServiceConfiguration {
-    if (localNumber == null || SignalStore.proxy().isProxyEnabled) {
+  open fun getConfiguration(e164: String?): SignalServiceConfiguration {
+    if (e164 == null || SignalStore.proxy().isProxyEnabled) {
       return uncensoredConfiguration
     }
 
-    val countryCode: Int = PhoneNumberFormatter.getLocalCountryCode()
+    val countryCode: Int = PhoneNumberUtil.getInstance().parse(e164, null).countryCode
 
     return when (SignalStore.settings().censorshipCircumventionEnabled) {
       SettingsValues.CensorshipCircumventionEnabled.ENABLED -> {
@@ -273,10 +270,9 @@ class SignalServiceNetworkAccess(context: Context) {
     val serviceUrls: Array<SignalServiceUrl> = hostConfigs.map { SignalServiceUrl("${it.baseUrl}/service", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
     val cdnUrls: Array<SignalCdnUrl> = hostConfigs.map { SignalCdnUrl("${it.baseUrl}/cdn", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
     val cdn2Urls: Array<SignalCdnUrl> = hostConfigs.map { SignalCdnUrl("${it.baseUrl}/cdn2", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
-    val cdsUrls: Array<SignalContactDiscoveryUrl> = hostConfigs.map { SignalContactDiscoveryUrl("${it.baseUrl}/directory", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
     val kbsUrls: Array<SignalKeyBackupServiceUrl> = hostConfigs.map { SignalKeyBackupServiceUrl("${it.baseUrl}/backup", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
     val storageUrls: Array<SignalStorageUrl> = hostConfigs.map { SignalStorageUrl("${it.baseUrl}/storage", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
-    val cdsiUrls: Array<SignalCdsiUrl> = listOf(SignalCdsiUrl(BuildConfig.SIGNAL_CDSI_URL, serviceTrustStore)).toTypedArray()
+    val cdsiUrls: Array<SignalCdsiUrl> = hostConfigs.map { SignalCdsiUrl("${it.baseUrl}/cdsi", it.host, gTrustStore, it.connectionSpec) }.toTypedArray()
 
     return SignalServiceConfiguration(
       serviceUrls,
@@ -284,7 +280,6 @@ class SignalServiceNetworkAccess(context: Context) {
         0 to cdnUrls,
         2 to cdn2Urls
       ),
-      cdsUrls,
       kbsUrls,
       storageUrls,
       cdsiUrls,

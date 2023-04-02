@@ -1,6 +1,5 @@
 package org.thoughtcrime.securesms.components.settings.app.notifications.profiles
 
-import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.widget.Toolbar
@@ -14,7 +13,6 @@ import io.reactivex.rxjava3.kotlin.subscribeBy
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.emoji.EmojiUtil
 import org.thoughtcrime.securesms.components.settings.DSLConfiguration
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.DSLSettingsIcon
 import org.thoughtcrime.securesms.components.settings.DSLSettingsText
@@ -32,6 +30,7 @@ import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.recipients.RecipientId
 import org.thoughtcrime.securesms.util.LifecycleDisposable
 import org.thoughtcrime.securesms.util.SpanUtil
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.formatHours
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
 import org.thoughtcrime.securesms.util.orderOfDaysInWeek
@@ -66,7 +65,7 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
     toolbar = null
   }
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     NotificationProfilePreference.register(adapter)
     NotificationProfileAddMembers.register(adapter)
     NotificationProfileRecipient.register(adapter)
@@ -96,7 +95,6 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
     val (profile: NotificationProfile, recipients: List<Recipient>, isOn: Boolean, expanded: Boolean) = state
 
     return configure {
-
       customPref(
         NotificationProfilePreference.Model(
           title = DSLSettingsText.from(profile.name),
@@ -147,8 +145,6 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
                     view?.let { view ->
                       Snackbar.make(view, getString(R.string.NotificationProfileDetails__s_removed, removed.getDisplayName(requireContext())), Snackbar.LENGTH_LONG)
                         .setAction(R.string.NotificationProfileDetails__undo) { undoRemove(id) }
-                        .setActionTextColor(ContextCompat.getColor(requireContext(), R.color.core_ultramarine_light))
-                        .setTextColor(Color.WHITE)
                         .show()
                     }
                   }
@@ -173,7 +169,7 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
       clickPref(
         title = DSLSettingsText.from(profile.schedule.describe()),
         summary = DSLSettingsText.from(if (profile.schedule.enabled) R.string.NotificationProfileDetails__on else R.string.NotificationProfileDetails__off),
-        icon = DSLSettingsIcon.from(R.drawable.ic_recent_20, NO_TINT),
+        icon = DSLSettingsIcon.from(R.drawable.symbol_recent_24),
         onClick = {
           findNavController().safeNavigate(NotificationProfileDetailsFragmentDirections.actionNotificationProfileDetailsFragmentToEditNotificationProfileScheduleFragment(profile.id, false))
         }
@@ -184,7 +180,7 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
       switchPref(
         title = DSLSettingsText.from(R.string.NotificationProfileDetails__allow_all_calls),
         isChecked = profile.allowAllCalls,
-        icon = DSLSettingsIcon.from(R.drawable.ic_phone_right_24),
+        icon = DSLSettingsIcon.from(R.drawable.symbol_phone_24),
         onClick = {
           lifecycleDisposable += viewModel.toggleAllowAllCalls()
             .subscribe()
@@ -192,7 +188,7 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
       )
       switchPref(
         title = DSLSettingsText.from(R.string.NotificationProfileDetails__notify_for_all_mentions),
-        icon = DSLSettingsIcon.from(R.drawable.ic_at_24),
+        icon = DSLSettingsIcon.from(R.drawable.symbol_at_24),
         isChecked = profile.allowAllMentions,
         onClick = {
           lifecycleDisposable += viewModel.toggleAllowAllMentions()
@@ -203,7 +199,7 @@ class NotificationProfileDetailsFragment : DSLSettingsFragment() {
       dividerPref()
       clickPref(
         title = DSLSettingsText.from(R.string.NotificationProfileDetails__delete_profile, ContextCompat.getColor(requireContext(), R.color.signal_alert_primary)),
-        icon = DSLSettingsIcon.from(R.drawable.ic_delete_24, R.color.signal_alert_primary),
+        icon = DSLSettingsIcon.from(R.drawable.symbol_trash_24, R.color.signal_alert_primary),
         onClick = {
           MaterialAlertDialogBuilder(requireContext())
             .setMessage(R.string.NotificationProfileDetails__permanently_delete_profile)

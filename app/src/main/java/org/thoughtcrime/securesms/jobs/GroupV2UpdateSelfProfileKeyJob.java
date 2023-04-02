@@ -2,14 +2,15 @@ package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.google.protobuf.ByteString;
 
 import org.signal.core.util.concurrent.SignalExecutors;
 import org.signal.core.util.logging.Log;
 import org.signal.storageservice.protos.groups.local.DecryptedMember;
-import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.database.SignalDatabase;
+import org.thoughtcrime.securesms.database.model.GroupRecord;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
 import org.thoughtcrime.securesms.groups.GroupChangeBusyException;
 import org.thoughtcrime.securesms.groups.GroupChangeFailedException;
@@ -17,7 +18,7 @@ import org.thoughtcrime.securesms.groups.GroupId;
 import org.thoughtcrime.securesms.groups.GroupInsufficientRightsException;
 import org.thoughtcrime.securesms.groups.GroupManager;
 import org.thoughtcrime.securesms.groups.GroupNotAMemberException;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.DecryptionsDrainedConstraint;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
@@ -112,7 +113,7 @@ public final class GroupV2UpdateSelfProfileKeyJob extends BaseJob {
       boolean foundMismatch = false;
 
       for (GroupId.V2 id : SignalDatabase.groups().getAllGroupV2Ids()) {
-        Optional<GroupDatabase.GroupRecord> group = SignalDatabase.groups().getGroup(id);
+        Optional<GroupRecord> group = SignalDatabase.groups().getGroup(id);
         if (!group.isPresent()) {
           Log.w(TAG, "Group " + group + " no longer exists?");
           continue;
@@ -145,9 +146,9 @@ public final class GroupV2UpdateSelfProfileKeyJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_GROUP_ID, groupId.toString())
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_GROUP_ID, groupId.toString())
+                                    .serialize();
   }
 
   @Override
@@ -177,7 +178,9 @@ public final class GroupV2UpdateSelfProfileKeyJob extends BaseJob {
   public static final class Factory implements Job.Factory<GroupV2UpdateSelfProfileKeyJob> {
 
     @Override
-    public @NonNull GroupV2UpdateSelfProfileKeyJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull GroupV2UpdateSelfProfileKeyJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       return new GroupV2UpdateSelfProfileKeyJob(parameters,
                                                 GroupId.parseOrThrow(data.getString(KEY_GROUP_ID)).requireV2());
     }

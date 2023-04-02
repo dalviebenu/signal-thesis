@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:viewBindingIgnore="true"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -19,12 +21,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="18dp"
-        app:tabIndicatorColor="@color/signal_inverse_primary"
+        app:tabIndicatorColor="@color/signal_colorOnSurface"
         app:tabIndicatorFullWidth="false"
         app:tabMode="fixed"
-        app:tabSelectedTextColor="@color/signal_text_primary"
+        app:tabSelectedTextColor="@color/signal_colorOnSurface"
         app:tabTextAppearance="@style/TextAppearance.Signal.Body2"
-        app:tabTextColor="@color/signal_text_secondary" />
+        app:tabTextColor="@color/signal_colorOnSurfaceVariant" />
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/pager"

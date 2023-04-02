@@ -2,11 +2,11 @@ package org.thoughtcrime.securesms.jobs
 
 import org.signal.core.util.logging.Log
 import org.signal.libsignal.protocol.InvalidMessageException
-import org.thoughtcrime.securesms.database.IdentityDatabase.VerifiedStatus
+import org.thoughtcrime.securesms.database.IdentityTable.VerifiedStatus
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
-import org.thoughtcrime.securesms.jobmanager.Data
 import org.thoughtcrime.securesms.jobmanager.Job
+import org.thoughtcrime.securesms.jobmanager.JsonJobData
 import org.thoughtcrime.securesms.keyvalue.SignalStore
 import org.thoughtcrime.securesms.net.NotPushRegisteredException
 import org.thoughtcrime.securesms.profiles.AvatarHelper
@@ -16,6 +16,7 @@ import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPoin
 import org.whispersystems.signalservice.api.messages.multidevice.DeviceContact
 import org.whispersystems.signalservice.api.messages.multidevice.DeviceContactsInputStream
 import org.whispersystems.signalservice.api.messages.multidevice.VerifiedMessage.VerifiedState
+import org.whispersystems.signalservice.api.push.SignalServiceAddress
 import org.whispersystems.signalservice.api.push.exceptions.MissingConfigurationException
 import org.whispersystems.signalservice.api.util.AttachmentPointerUtil
 import java.io.File
@@ -34,10 +35,10 @@ class MultiDeviceContactSyncJob(parameters: Parameters, private val attachmentPo
     AttachmentPointerUtil.createAttachmentPointer(contactsAttachment).toByteArray()
   )
 
-  override fun serialize(): Data {
-    return Data.Builder()
+  override fun serialize(): ByteArray? {
+    return JsonJobData.Builder()
       .putBlobAsString(KEY_ATTACHMENT_POINTER, attachmentPointer)
-      .build()
+      .serialize()
   }
 
   override fun getFactoryKey(): String {
@@ -75,7 +76,7 @@ class MultiDeviceContactSyncJob(parameters: Parameters, private val attachmentPo
 
     var contact: DeviceContact? = deviceContacts.read()
     while (contact != null) {
-      val recipient = Recipient.externalPush(contact.address.serviceId, contact.address.number.orElse(null), true)
+      val recipient = Recipient.externalPush(SignalServiceAddress(contact.address.serviceId, contact.address.number.orElse(null)))
 
       if (recipient.isSelf) {
         contact = deviceContacts.read()
@@ -140,7 +141,8 @@ class MultiDeviceContactSyncJob(parameters: Parameters, private val attachmentPo
   override fun onFailure() = Unit
 
   class Factory : Job.Factory<MultiDeviceContactSyncJob> {
-    override fun create(parameters: Parameters, data: Data): MultiDeviceContactSyncJob {
+    override fun create(parameters: Parameters, serializedData: ByteArray?): MultiDeviceContactSyncJob {
+      val data = JsonJobData.deserialize(serializedData)
       return MultiDeviceContactSyncJob(parameters, data.getStringAsBlob(KEY_ATTACHMENT_POINTER))
     }
   }

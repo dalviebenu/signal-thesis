@@ -5,10 +5,12 @@ import android.os.Bundle
 import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import org.signal.core.util.getParcelableCompat
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.mediasend.VideoEditorFragment
 import org.thoughtcrime.securesms.mediasend.v2.HudCommand
 import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionViewModel
+import org.thoughtcrime.securesms.mms.MediaConstraints
 import org.thoughtcrime.securesms.stories.Stories
 
 private const val VIDEO_EDITOR_TAG = "video.editor.fragment"
@@ -98,11 +100,11 @@ class MediaReviewVideoPageFragment : Fragment(R.layout.fragment_container), Vide
     }
   }
 
-  private fun requireUri(): Uri = requireNotNull(requireArguments().getParcelable(ARG_URI))
+  private fun requireUri(): Uri = requireNotNull(requireArguments().getParcelableCompat(ARG_URI, Uri::class.java))
   private fun requireMaxCompressedVideoSize(): Long = sharedViewModel.getMediaConstraints().getCompressedVideoMaxSize(requireContext()).toLong()
   private fun requireMaxAttachmentSize(): Long = sharedViewModel.getMediaConstraints().getVideoMaxSize(requireContext()).toLong()
   private fun requireIsVideoGif(): Boolean = requireNotNull(requireArguments().getBoolean(ARG_IS_VIDEO_GIF))
-  private fun requireMaxVideoDuration(): Long = if (sharedViewModel.isStory()) Stories.MAX_VIDEO_DURATION_MILLIS else Long.MAX_VALUE
+  private fun requireMaxVideoDuration(): Long = if (sharedViewModel.isStory() && !MediaConstraints.isVideoTranscodeAvailable()) Stories.MAX_VIDEO_DURATION_MILLIS else Long.MAX_VALUE
 
   companion object {
     private const val ARG_URI = "arg.uri"

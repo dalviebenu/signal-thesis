@@ -1,6 +1,9 @@
+@file:Suppress("ktlint:filename")
+
 package org.thoughtcrime.securesms.components.settings
 
 import androidx.annotation.CallSuper
+import androidx.annotation.Discouraged
 import androidx.annotation.Px
 import androidx.annotation.StringRes
 import org.thoughtcrime.securesms.components.settings.models.AsyncSwitch
@@ -10,12 +13,17 @@ import org.thoughtcrime.securesms.components.settings.models.Text
 import org.thoughtcrime.securesms.util.adapter.mapping.MappingModel
 import org.thoughtcrime.securesms.util.adapter.mapping.MappingModelList
 
+@Discouraged("The DSL API can be completely replaced by compose. See ComposeFragment or ComposeBottomSheetFragment for an alternative to this API")
 fun configure(init: DSLConfiguration.() -> Unit): DSLConfiguration {
   val configuration = DSLConfiguration()
   configuration.init()
   return configuration
 }
 
+/**
+ * The DSL API can be completely replaced by compose.
+ * See ComposeFragment or ComposeBottomSheetFragment for an alternative to this API
+ */
 class DSLConfiguration {
   private val children = arrayListOf<MappingModel<*>>()
 
@@ -151,10 +159,29 @@ class DSLConfiguration {
 
   fun primaryButton(
     text: DSLSettingsText,
+    icon: DSLSettingsIcon? = null,
     isEnabled: Boolean = true,
     onClick: () -> Unit
   ) {
-    val preference = Button.Model.Primary(text, null, isEnabled, onClick)
+    val preference = Button.Model.Primary(text, icon, isEnabled, onClick)
+    children.add(preference)
+  }
+
+  fun primaryWrappedButton(
+    text: DSLSettingsText,
+    isEnabled: Boolean = true,
+    onClick: () -> Unit
+  ) {
+    val preference = Button.Model.PrimaryWrapped(text, null, isEnabled, onClick)
+    children.add(preference)
+  }
+
+  fun tonalButton(
+    text: DSLSettingsText,
+    isEnabled: Boolean = true,
+    onClick: () -> Unit
+  ) {
+    val preference = Button.Model.Tonal(text, null, isEnabled, onClick)
     children.add(preference)
   }
 
@@ -176,6 +203,15 @@ class DSLConfiguration {
     children.add(preference)
   }
 
+  fun learnMoreTextPref(
+    title: DSLSettingsText? = null,
+    summary: DSLSettingsText? = null,
+    onClick: () -> Unit
+  ) {
+    val preference = LearnMoreTextPreference(title, summary, onClick)
+    children.add(preference)
+  }
+
   fun toMappingModelList(): MappingModelList = MappingModelList().apply { addAll(children) }
 }
 
@@ -184,7 +220,7 @@ abstract class PreferenceModel<T : PreferenceModel<T>>(
   open val summary: DSLSettingsText? = null,
   open val icon: DSLSettingsIcon? = null,
   open val iconEnd: DSLSettingsIcon? = null,
-  open val isEnabled: Boolean = true,
+  open val isEnabled: Boolean = true
 ) : MappingModel<T> {
   override fun areItemsTheSame(newItem: T): Boolean {
     return when {
@@ -208,6 +244,12 @@ class TextPreference(
   title: DSLSettingsText?,
   summary: DSLSettingsText?
 ) : PreferenceModel<TextPreference>(title = title, summary = summary)
+
+class LearnMoreTextPreference(
+  override val title: DSLSettingsText?,
+  override val summary: DSLSettingsText?,
+  val onClick: () -> Unit
+) : PreferenceModel<LearnMoreTextPreference>()
 
 class DividerPreference : PreferenceModel<DividerPreference>() {
   override fun areItemsTheSame(newItem: DividerPreference) = true

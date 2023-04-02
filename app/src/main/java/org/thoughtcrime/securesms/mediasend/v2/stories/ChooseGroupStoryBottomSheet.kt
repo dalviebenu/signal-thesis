@@ -13,11 +13,15 @@ import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.setFragmentResult
 import androidx.recyclerview.widget.RecyclerView
 import org.signal.core.util.DimensionUnit
+import org.signal.core.util.getParcelableArrayListCompat
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.FixedRoundedCornerBottomSheetDialogFragment
+import org.thoughtcrime.securesms.contacts.paged.ContactSearchAdapter
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchConfiguration
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchMediator
+import org.thoughtcrime.securesms.contacts.paged.ContactSearchSortOrder
+import org.thoughtcrime.securesms.recipients.RecipientId
 import org.thoughtcrime.securesms.sharing.ShareContact
 import org.thoughtcrime.securesms.sharing.ShareSelectionAdapter
 import org.thoughtcrime.securesms.sharing.ShareSelectionMappingModel
@@ -30,11 +34,9 @@ class ChooseGroupStoryBottomSheet : FixedRoundedCornerBottomSheetDialogFragment(
     const val RESULT_SET = "groups"
   }
 
-  private lateinit var confirmButton: View
-  private lateinit var selectedList: RecyclerView
-  private lateinit var backgroundHelper: View
   private lateinit var divider: View
   private lateinit var mediator: ContactSearchMediator
+  private lateinit var innerContainer: View
 
   private var animatorSet: AnimatorSet? = null
 
@@ -48,40 +50,48 @@ class ChooseGroupStoryBottomSheet : FixedRoundedCornerBottomSheetDialogFragment(
     val container = view.parent.parent.parent as FrameLayout
     val bottomBar = LayoutInflater.from(requireContext()).inflate(R.layout.stories_choose_group_bottom_bar, container, true)
 
-    confirmButton = bottomBar.findViewById(R.id.share_confirm)
-    selectedList = bottomBar.findViewById(R.id.selected_list)
-    backgroundHelper = bottomBar.findViewById(R.id.background_helper)
+    innerContainer = bottomBar.findViewById(R.id.inner_container)
     divider = bottomBar.findViewById(R.id.divider)
 
     val adapter = ShareSelectionAdapter()
+    val selectedList: RecyclerView = bottomBar.findViewById(R.id.selected_list)
     selectedList.adapter = adapter
 
+    val confirmButton: View = bottomBar.findViewById(R.id.share_confirm)
     confirmButton.setOnClickListener {
       onDone()
     }
 
     val contactRecycler: RecyclerView = view.findViewById(R.id.contact_recycler)
     mediator = ContactSearchMediator(
-      this,
-      contactRecycler,
-      FeatureFlags.shareSelectionLimit(),
-      true
-    ) { state ->
-      ContactSearchConfiguration.build {
-        query = state.query
+      fragment = this,
+      selectionLimits = FeatureFlags.shareSelectionLimit(),
+      displayOptions = ContactSearchAdapter.DisplayOptions(
+        displayCheckBox = true,
+        displaySmsTag = ContactSearchAdapter.DisplaySmsTag.DEFAULT,
+        displaySecondaryInformation = ContactSearchAdapter.DisplaySecondaryInformation.NEVER
+      ),
+      mapStateToConfiguration = { state ->
+        ContactSearchConfiguration.build {
+          query = state.query
 
-        addSection(
-          ContactSearchConfiguration.Section.Groups(
-            includeHeader = false,
-            returnAsGroupStories = true
+          addSection(
+            ContactSearchConfiguration.Section.Groups(
+              includeHeader = false,
+              shortSummary = true,
+              sortOrder = ContactSearchSortOrder.RECENCY
+            )
           )
-        )
-      }
-    }
+        }
+      },
+      performSafetyNumberChecks = false
+    )
+
+    contactRecycler.adapter = mediator.adapter
 
     mediator.getSelectionState().observe(viewLifecycleOwner) { state ->
       adapter.submitList(
-        state.filterIsInstance(ContactSearchKey.RecipientSearchKey.Story::class.java)
+        state.filterIsInstance(ContactSearchKey.RecipientSearchKey::class.java)
           .map { it.recipientId }
           .mapIndexed { index, recipientId ->
             ShareSelectionMappingModel(
@@ -113,9 +123,7 @@ class ChooseGroupStoryBottomSheet : FixedRoundedCornerBottomSheetDialogFragment(
     animatorSet?.cancel()
     animatorSet = AnimatorSet().apply {
       playTogether(
-        ObjectAnimator.ofFloat(confirmButton, View.ALPHA, 1f),
-        ObjectAnimator.ofFloat(selectedList, View.TRANSLATION_Y, 0f),
-        ObjectAnimator.ofFloat(backgroundHelper, View.TRANSLATION_Y, 0f),
+        ObjectAnimator.ofFloat(innerContainer, View.TRANSLATION_Y, 0f),
         ObjectAnimator.ofFloat(divider, View.TRANSLATION_Y, 0f)
       )
       start()
@@ -123,14 +131,12 @@ class ChooseGroupStoryBottomSheet : FixedRoundedCornerBottomSheetDialogFragment(
   }
 
   private fun animateOutBottomBar() {
-    val translationY = DimensionUnit.DP.toPixels(48f)
+    val translationY = DimensionUnit.SP.toPixels(68f)
 
     animatorSet?.cancel()
     animatorSet = AnimatorSet().apply {
       playTogether(
-        ObjectAnimator.ofFloat(confirmButton, View.ALPHA, 0f),
-        ObjectAnimator.ofFloat(selectedList, View.TRANSLATION_Y, translationY),
-        ObjectAnimator.ofFloat(backgroundHelper, View.TRANSLATION_Y, translationY),
+        ObjectAnimator.ofFloat(innerContainer, View.TRANSLATION_Y, translationY),
         ObjectAnimator.ofFloat(divider, View.TRANSLATION_Y, translationY)
       )
       start()
@@ -145,12 +151,18 @@ class ChooseGroupStoryBottomSheet : FixedRoundedCornerBottomSheetDialogFragment(
           RESULT_SET,
           ArrayList(
             mediator.getSelectedContacts()
-              .filterIsInstance(ContactSearchKey.RecipientSearchKey.Story::class.java)
+              .filterIsInstance(ContactSearchKey.RecipientSearchKey::class.java)
               .map { it.recipientId }
           )
         )
       }
     )
     dismissAllowingStateLoss()
+  }
+
+  object ResultContract {
+    fun getRecipientIds(bundle: Bundle): List<RecipientId> {
+      return bundle.getParcelableArrayListCompat(RESULT_SET, RecipientId::class.java)!!
+    }
   }
 }

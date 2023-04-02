@@ -15,7 +15,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentManager;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
@@ -34,6 +34,7 @@ import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.BottomSheetUtil;
 import org.thoughtcrime.securesms.util.LongClickMovementMethod;
 import org.thoughtcrime.securesms.util.ThemeUtil;
+import org.thoughtcrime.securesms.util.WindowUtil;
 
 public final class GroupJoinBottomSheetDialogFragment extends BottomSheetDialogFragment {
 
@@ -97,7 +98,7 @@ public final class GroupJoinBottomSheetDialogFragment extends BottomSheetDialogF
 
     GroupJoinViewModel.Factory factory = new GroupJoinViewModel.Factory(requireContext().getApplicationContext(), getGroupInviteLinkUrl());
 
-    GroupJoinViewModel viewModel = ViewModelProviders.of(this, factory).get(GroupJoinViewModel.class);
+    GroupJoinViewModel viewModel = new ViewModelProvider(this, factory).get(GroupJoinViewModel.class);
 
     viewModel.getGroupDetails().observe(getViewLifecycleOwner(), details -> {
       groupName.setText(details.getGroupName());
@@ -138,6 +139,12 @@ public final class GroupJoinBottomSheetDialogFragment extends BottomSheetDialogF
         dismiss();
       }
     );
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    WindowUtil.initializeScreenshotSecurity(requireContext(), requireDialog().getWindow());
   }
 
   private void updateGroupDescription(@NonNull String name, @NonNull String description) {

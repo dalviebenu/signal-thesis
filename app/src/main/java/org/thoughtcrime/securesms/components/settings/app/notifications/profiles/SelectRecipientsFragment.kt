@@ -8,19 +8,19 @@ import androidx.appcompat.widget.Toolbar
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.findNavController
-import com.dd.CircularProgressButton
 import io.reactivex.rxjava3.kotlin.subscribeBy
 import org.thoughtcrime.securesms.ContactSelectionListFragment
 import org.thoughtcrime.securesms.LoggingFragment
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.ContactFilterView
-import org.thoughtcrime.securesms.contacts.ContactsCursorLoader
+import org.thoughtcrime.securesms.contacts.ContactSelectionDisplayMode
 import org.thoughtcrime.securesms.groups.SelectionLimits
+import org.thoughtcrime.securesms.keyvalue.SignalStore
 import org.thoughtcrime.securesms.recipients.RecipientId
-import org.thoughtcrime.securesms.util.CircularProgressButtonUtil
 import org.thoughtcrime.securesms.util.LifecycleDisposable
 import org.thoughtcrime.securesms.util.Util
 import org.thoughtcrime.securesms.util.ViewUtil
+import org.thoughtcrime.securesms.util.views.CircularProgressMaterialButton
 import java.util.Optional
 import java.util.function.Consumer
 
@@ -32,7 +32,7 @@ class SelectRecipientsFragment : LoggingFragment(), ContactSelectionListFragment
   private val viewModel: SelectRecipientsViewModel by viewModels(factoryProducer = this::createFactory)
   private val lifecycleDisposable = LifecycleDisposable()
 
-  private var addToProfile: CircularProgressButton? = null
+  private var addToProfile: CircularProgressMaterialButton? = null
 
   private fun createFactory(): ViewModelProvider.Factory {
     val args = SelectRecipientsFragmentArgs.fromBundle(requireArguments())
@@ -86,8 +86,8 @@ class SelectRecipientsFragment : LoggingFragment(), ContactSelectionListFragment
     addToProfile = view.findViewById(R.id.select_recipients_add)
     addToProfile?.setOnClickListener {
       lifecycleDisposable += viewModel.updateAllowedMembers()
-        .doOnSubscribe { CircularProgressButtonUtil.setSpinning(addToProfile) }
-        .doOnTerminate { CircularProgressButtonUtil.cancelSpinning(addToProfile) }
+        .doOnSubscribe { addToProfile?.setSpinning() }
+        .doOnTerminate { addToProfile?.cancelSpinning() }
         .subscribeBy(onSuccess = { findNavController().navigateUp() })
     }
 
@@ -100,20 +100,20 @@ class SelectRecipientsFragment : LoggingFragment(), ContactSelectionListFragment
   }
 
   private fun getDefaultDisplayMode(): Int {
-    var mode = ContactsCursorLoader.DisplayMode.FLAG_PUSH or
-      ContactsCursorLoader.DisplayMode.FLAG_ACTIVE_GROUPS or
-      ContactsCursorLoader.DisplayMode.FLAG_HIDE_NEW or
-      ContactsCursorLoader.DisplayMode.FLAG_HIDE_RECENT_HEADER or
-      ContactsCursorLoader.DisplayMode.FLAG_GROUPS_AFTER_CONTACTS
+    var mode = ContactSelectionDisplayMode.FLAG_PUSH or
+      ContactSelectionDisplayMode.FLAG_ACTIVE_GROUPS or
+      ContactSelectionDisplayMode.FLAG_HIDE_NEW or
+      ContactSelectionDisplayMode.FLAG_HIDE_RECENT_HEADER or
+      ContactSelectionDisplayMode.FLAG_GROUPS_AFTER_CONTACTS
 
-    if (Util.isDefaultSmsProvider(requireContext())) {
-      mode = mode or ContactsCursorLoader.DisplayMode.FLAG_SMS
+    if (Util.isDefaultSmsProvider(requireContext()) && SignalStore.misc().smsExportPhase.allowSmsFeatures()) {
+      mode = mode or ContactSelectionDisplayMode.FLAG_SMS
     }
 
-    return mode or ContactsCursorLoader.DisplayMode.FLAG_HIDE_GROUPS_V1
+    return mode or ContactSelectionDisplayMode.FLAG_HIDE_GROUPS_V1
   }
 
-  override fun onBeforeContactSelected(recipientId: Optional<RecipientId>, number: String?, callback: Consumer<Boolean>) {
+  override fun onBeforeContactSelected(isFromUnknownSearchKey: Boolean, recipientId: Optional<RecipientId>, number: String?, callback: Consumer<Boolean>) {
     if (recipientId.isPresent) {
       viewModel.select(recipientId.get())
       callback.accept(true)

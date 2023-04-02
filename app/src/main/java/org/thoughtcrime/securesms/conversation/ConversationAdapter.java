@@ -25,7 +25,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import androidx.annotation.AnyThread;
 import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.LayoutRes;
@@ -40,7 +39,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.exoplayer2.MediaItem;
 
-import org.signal.core.util.ThreadUtil;
 import org.signal.core.util.logging.Log;
 import org.signal.paging.PagingController;
 import org.thoughtcrime.securesms.BindableConversationItem;
@@ -48,6 +46,7 @@ import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.conversation.colors.Colorizable;
 import org.thoughtcrime.securesms.conversation.colors.Colorizer;
 import org.thoughtcrime.securesms.conversation.mutiselect.MultiselectPart;
+import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord;
 import org.thoughtcrime.securesms.database.model.MessageRecord;
 import org.thoughtcrime.securesms.giph.mp4.GiphyMp4Playable;
 import org.thoughtcrime.securesms.giph.mp4.GiphyMp4PlaybackPolicyEnforcer;
@@ -56,19 +55,14 @@ import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.util.CachedInflater;
 import org.thoughtcrime.securesms.util.DateUtils;
-import org.thoughtcrime.securesms.util.MessageRecordUtil;
 import org.thoughtcrime.securesms.util.Projection;
 import org.thoughtcrime.securesms.util.ProjectionList;
 import org.thoughtcrime.securesms.util.StickyHeaderDecoration;
 import org.thoughtcrime.securesms.util.ThemeUtil;
 import org.thoughtcrime.securesms.util.ViewUtil;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -115,7 +109,6 @@ public class ConversationAdapter
 
   private final Set<MultiselectPart>         selected;
   private final Calendar                     calendar;
-  private final MessageDigest                digest;
 
   private String              searchQuery;
   private ConversationMessage recordToPulse;
@@ -127,8 +120,11 @@ public class ConversationAdapter
   private ConversationMessage inlineContent;
   private Colorizer           colorizer;
   private boolean             isTypingViewEnabled;
+  private boolean             condensedMode;
+  private boolean             scheduledMessagesMode;
+  private PulseRequest        pulseRequest;
 
-  ConversationAdapter(@NonNull Context context,
+  public ConversationAdapter(@NonNull Context context,
                       @NonNull LifecycleOwner lifecycleOwner,
                       @NonNull GlideRequests glideRequests,
                       @NonNull Locale locale,
@@ -157,7 +153,6 @@ public class ConversationAdapter
     this.recipient                    = recipient;
     this.selected                     = new HashSet<>();
     this.calendar                     = Calendar.getInstance();
-    this.digest                       = getMessageDigestOrThrow();
     this.hasWallpaper                 = recipient.hasWallpaper();
     this.isMessageRequestAccepted     = true;
     this.colorizer                    = colorizer;
@@ -181,9 +176,9 @@ public class ConversationAdapter
     } else if (messageRecord.isUpdate()) {
       return MESSAGE_TYPE_UPDATE;
     } else if (messageRecord.isOutgoing()) {
-      return MessageRecordUtil.isTextOnly(messageRecord, context) ? MESSAGE_TYPE_OUTGOING_TEXT : MESSAGE_TYPE_OUTGOING_MULTIMEDIA;
+      return conversationMessage.isTextOnly(context) ? MESSAGE_TYPE_OUTGOING_TEXT : MESSAGE_TYPE_OUTGOING_MULTIMEDIA;
     } else {
-      return MessageRecordUtil.isTextOnly(messageRecord, context) ? MESSAGE_TYPE_INCOMING_TEXT : MESSAGE_TYPE_INCOMING_MULTIMEDIA;
+      return conversationMessage.isTextOnly(context) ? MESSAGE_TYPE_INCOMING_TEXT : MESSAGE_TYPE_INCOMING_MULTIMEDIA;
     }
   }
 
@@ -263,6 +258,16 @@ public class ConversationAdapter
     }
   }
 
+  public void setCondensedMode(boolean condensedMode) {
+    this.condensedMode = condensedMode;
+    notifyDataSetChanged();
+  }
+
+  public void setScheduledMessagesMode(boolean scheduledMessagesMode) {
+    this.scheduledMessagesMode = scheduledMessagesMode;
+    notifyDataSetChanged();
+  }
+
   @Override
   public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
     switch (getItemViewType(position)) {
@@ -278,6 +283,8 @@ public class ConversationAdapter
         ConversationMessage previousMessage = adapterPosition < getItemCount() - 1  && !isFooterPosition(adapterPosition + 1) ? getItem(adapterPosition + 1) : null;
         ConversationMessage nextMessage     = adapterPosition > 0                   && !isHeaderPosition(adapterPosition - 1) ? getItem(adapterPosition - 1) : null;
 
+        ConversationItemDisplayMode displayMode = condensedMode ? ConversationItemDisplayMode.CONDENSED : ConversationItemDisplayMode.STANDARD;
+
         conversationViewHolder.getBindable().bind(lifecycleOwner,
                                                   conversationMessage,
                                                   Optional.ofNullable(previousMessage != null ? previousMessage.getMessageRecord() : null),
@@ -288,10 +295,11 @@ public class ConversationAdapter
                                                   recipient,
                                                   searchQuery,
                                                   conversationMessage == recordToPulse,
-                                                  hasWallpaper,
+                                                  hasWallpaper && !condensedMode,
                                                   isMessageRequestAccepted,
                                                   conversationMessage == inlineContent,
-                                                  colorizer);
+                                                  colorizer,
+                                                  displayMode);
 
         if (conversationMessage == recordToPulse) {
           recordToPulse = null;
@@ -330,7 +338,11 @@ public class ConversationAdapter
 
     if (conversationMessage == null) return -1;
 
-    calendar.setTimeInMillis(conversationMessage.getMessageRecord().getDateSent());
+    if (scheduledMessagesMode) {
+      calendar.setTimeInMillis(((MediaMmsMessageRecord) conversationMessage.getMessageRecord()).getScheduledDate());
+    } else {
+      calendar.setTimeInMillis(conversationMessage.getMessageRecord().getDateSent());
+    }
     return calendar.get(Calendar.YEAR) * 1000L + calendar.get(Calendar.DAY_OF_YEAR);
   }
 
@@ -344,26 +356,30 @@ public class ConversationAdapter
     Context             context             = viewHolder.itemView.getContext();
     ConversationMessage conversationMessage = Objects.requireNonNull(getItem(position));
 
-    viewHolder.setText(DateUtils.getConversationDateHeaderString(viewHolder.itemView.getContext(), locale, conversationMessage.getMessageRecord().getDateSent()));
+    if (scheduledMessagesMode) {
+      viewHolder.setText(DateUtils.getScheduledMessagesDateHeaderString(viewHolder.itemView.getContext(), locale, ((MediaMmsMessageRecord) conversationMessage.getMessageRecord()).getScheduledDate()));
+    } else {
+      viewHolder.setText(DateUtils.getConversationDateHeaderString(viewHolder.itemView.getContext(), locale, conversationMessage.getMessageRecord().getDateSent()));
+    }
 
     if (type == HEADER_TYPE_POPOVER_DATE) {
       if (hasWallpaper) {
-        viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_8);
+        viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_18);
       } else {
         viewHolder.setBackgroundRes(R.drawable.sticky_date_header_background);
       }
     } else if (type == HEADER_TYPE_INLINE_DATE) {
       if (hasWallpaper) {
-        viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_8);
+        viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_18);
       } else {
         viewHolder.clearBackground();
       }
     }
 
     if (hasWallpaper && ThemeUtil.isDarkTheme(context)) {
-      viewHolder.setTextColor(ContextCompat.getColor(context, R.color.core_grey_15));
+      viewHolder.setTextColor(ContextCompat.getColor(context, R.color.signal_colorNeutralInverse));
     } else {
-      viewHolder.setTextColor(ContextCompat.getColor(context, R.color.signal_text_secondary));
+      viewHolder.setTextColor(ContextCompat.getColor(context, R.color.signal_colorOnSurfaceVariant));
     }
   }
 
@@ -394,13 +410,11 @@ public class ConversationAdapter
     return recipient.getId().equals(recipientId);
   }
 
-  void onBindLastSeenViewHolder(StickyHeaderViewHolder viewHolder, int position) {
-    int messagePosition = isTypingViewEnabled ? position - 1 : position;
-    int count = messagePosition + 1;
-    viewHolder.setText(viewHolder.itemView.getContext().getResources().getQuantityString(R.plurals.ConversationAdapter_n_unread_messages, count, count));
+  void onBindLastSeenViewHolder(StickyHeaderViewHolder viewHolder, long unreadCount) {
+    viewHolder.setText(viewHolder.itemView.getContext().getResources().getQuantityString(R.plurals.ConversationAdapter_n_unread_messages, (int) unreadCount, (int) unreadCount));
 
     if (hasWallpaper) {
-      viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_8);
+      viewHolder.setBackgroundRes(R.drawable.wallpaper_bubble_background_18);
       viewHolder.setDividerColor(viewHolder.itemView.getResources().getColor(R.color.transparent_black_80));
     } else {
       viewHolder.clearBackground();
@@ -484,13 +498,21 @@ public class ConversationAdapter
   /**
    * Momentarily highlights a mention at the requested position.
    */
-  void pulseAtPosition(int position) {
+  public void pulseAtPosition(int position) {
     if (position >= 0 && position < getItemCount()) {
       int correctedPosition = isHeaderPosition(position) ? position + 1 : position;
 
       recordToPulse = getItem(correctedPosition);
+      pulseRequest = new PulseRequest(position, recordToPulse.getMessageRecord().isOutgoing());
       notifyItemChanged(correctedPosition);
     }
+  }
+
+  @Nullable
+  public PulseRequest consumePulseRequest() {
+    PulseRequest request = pulseRequest;
+    pulseRequest = null;
+    return request;
   }
 
   /**
@@ -593,14 +615,6 @@ public class ConversationAdapter
       case MESSAGE_TYPE_INCOMING_MULTIMEDIA: return R.layout.conversation_item_received_multimedia;
       case MESSAGE_TYPE_UPDATE:              return R.layout.conversation_item_update;
       default:                               throw new IllegalArgumentException("Unknown type!");
-    }
-  }
-
-  private static MessageDigest getMessageDigestOrThrow() {
-    try {
-      return MessageDigest.getInstance("SHA1");
-    } catch (NoSuchAlgorithmException e) {
-      throw new AssertionError(e);
     }
   }
 
@@ -780,7 +794,38 @@ public class ConversationAdapter
     }
   }
 
-  interface ItemClickListener extends BindableConversationItem.EventListener {
+  public static class PulseRequest {
+    private final int     position;
+    private final boolean isOutgoing;
+
+    PulseRequest(int position, boolean isOutgoing) {
+      this.position   = position;
+      this.isOutgoing = isOutgoing;
+    }
+
+    public int getPosition() {
+      return position;
+    }
+
+    public boolean isOutgoing() {
+      return isOutgoing;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      final PulseRequest that = (PulseRequest) o;
+      return position == that.position;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(position);
+    }
+  }
+
+  public interface ItemClickListener extends BindableConversationItem.EventListener {
     void onItemClick(MultiselectPart item);
     void onItemLongClick(View itemView, MultiselectPart item);
   }

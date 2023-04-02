@@ -5,12 +5,12 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.core.content.ContextCompat
-import org.thoughtcrime.securesms.TransportOption
-import org.thoughtcrime.securesms.TransportOptions
 import org.thoughtcrime.securesms.attachments.Attachment
 import org.thoughtcrime.securesms.conversation.ConversationMessage
+import org.thoughtcrime.securesms.conversation.MessageSendType
 import org.thoughtcrime.securesms.database.model.MessageRecord
 import org.thoughtcrime.securesms.database.model.MmsMessageRecord
+import org.thoughtcrime.securesms.keyvalue.SignalStore
 import org.thoughtcrime.securesms.mms.MediaConstraints
 import org.thoughtcrime.securesms.mms.SlideDeck
 import org.thoughtcrime.securesms.mms.TextSlide
@@ -80,14 +80,13 @@ object Multiselect {
    */
   fun isMmsSupported(context: Context, mediaUri: Uri, mediaType: String, mediaSize: Long): Boolean {
     val canReadPhoneState = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-    if (!Util.isDefaultSmsProvider(context) || !canReadPhoneState || !Util.isMmsCapable(context)) {
+    if (!Util.isDefaultSmsProvider(context) || !canReadPhoneState || !Util.isMmsCapable(context) || !SignalStore.misc().smsExportPhase.allowSmsFeatures()) {
       return false
     }
 
-    val options = TransportOptions(context, true)
-    options.setDefaultTransport(TransportOption.Type.SMS)
+    val sendType: MessageSendType = MessageSendType.getFirstForTransport(context, true, MessageSendType.TransportType.SMS)
 
-    val mmsConstraints = MediaConstraints.getMmsMediaConstraints(options.selectedTransport.simSubscriptionId.orElse(-1))
+    val mmsConstraints = MediaConstraints.getMmsMediaConstraints(sendType.simSubscriptionId ?: -1)
     return mmsConstraints.isSatisfied(context, mediaUri, mediaType, mediaSize) || mmsConstraints.canResize(mediaType)
   }
 
@@ -104,14 +103,13 @@ object Multiselect {
    */
   private fun isMmsSupported(context: Context, attachment: Attachment): Boolean {
     val canReadPhoneState = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-    if (!Util.isDefaultSmsProvider(context) || !canReadPhoneState || !Util.isMmsCapable(context)) {
+    if (!Util.isDefaultSmsProvider(context) || !canReadPhoneState || !Util.isMmsCapable(context) || !SignalStore.misc().smsExportPhase.allowSmsFeatures()) {
       return false
     }
 
-    val options = TransportOptions(context, true)
-    options.setDefaultTransport(TransportOption.Type.SMS)
+    val sendType: MessageSendType = MessageSendType.getFirstForTransport(context, true, MessageSendType.TransportType.SMS)
 
-    val mmsConstraints = MediaConstraints.getMmsMediaConstraints(options.selectedTransport.simSubscriptionId.orElse(-1))
+    val mmsConstraints = MediaConstraints.getMmsMediaConstraints(sendType.simSubscriptionId ?: -1)
     return mmsConstraints.isSatisfied(context, attachment) || mmsConstraints.canResize(attachment)
   }
 }

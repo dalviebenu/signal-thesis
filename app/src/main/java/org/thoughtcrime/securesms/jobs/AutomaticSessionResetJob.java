@@ -1,14 +1,15 @@
 package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
-import org.thoughtcrime.securesms.database.MessageDatabase;
+import org.thoughtcrime.securesms.database.MessageTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.database.model.databaseprotos.DeviceLastResetTime;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.DecryptionsDrainedConstraint;
 import org.thoughtcrime.securesms.notifications.v2.ConversationId;
@@ -70,11 +71,11 @@ public class AutomaticSessionResetJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_RECIPIENT_ID, recipientId.serialize())
-                             .putInt(KEY_DEVICE_ID, deviceId)
-                             .putLong(KEY_SENT_TIMESTAMP, sentTimestamp)
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_RECIPIENT_ID, recipientId.serialize())
+                                    .putInt(KEY_DEVICE_ID, deviceId)
+                                    .putLong(KEY_SENT_TIMESTAMP, sentTimestamp)
+                                    .serialize();
   }
 
   @Override
@@ -93,21 +94,21 @@ public class AutomaticSessionResetJob extends BaseJob {
       DeviceLastResetTime resetTimes         = SignalDatabase.recipients().getLastSessionResetTimes(recipientId);
       long                timeSinceLastReset = System.currentTimeMillis() - getLastResetTime(resetTimes, deviceId);
 
-      Log.i(TAG, "DeviceId: " + deviceId + ", Reset interval: " + resetInterval + ", Time since last reset: " + timeSinceLastReset);
+      Log.i(TAG, "DeviceId: " + deviceId + ", Reset interval: " + resetInterval + ", Time since last reset: " + timeSinceLastReset, true);
 
       if (timeSinceLastReset > resetInterval) {
-        Log.i(TAG, "We're good! Sending a null message.");
+        Log.i(TAG, "We're good! Sending a null message.", true);
 
         SignalDatabase.recipients().setLastSessionResetTime(recipientId, setLastResetTime(resetTimes, deviceId, System.currentTimeMillis()));
-        Log.i(TAG, "Marked last reset time: " + System.currentTimeMillis());
+        Log.i(TAG, "Marked last reset time: " + System.currentTimeMillis(), true);
 
         sendNullMessage();
-        Log.i(TAG, "Successfully sent!");
+        Log.i(TAG, "Successfully sent!", true);
       } else {
-        Log.w(TAG, "Too soon! Time since last reset: " + timeSinceLastReset);
+        Log.w(TAG, "Too soon! Time since last reset: " + timeSinceLastReset, true);
       }
     } else {
-      Log.w(TAG, "Automatic session reset send disabled!");
+      Log.w(TAG, "Automatic session reset send disabled!", true);
     }
   }
 
@@ -121,7 +122,7 @@ public class AutomaticSessionResetJob extends BaseJob {
   }
 
   private void insertLocalMessage() {
-    MessageDatabase.InsertResult result = SignalDatabase.sms().insertChatSessionRefreshedMessage(recipientId, deviceId, sentTimestamp);
+    MessageTable.InsertResult result = SignalDatabase.messages().insertChatSessionRefreshedMessage(recipientId, deviceId, sentTimestamp);
     ApplicationDependencies.getMessageNotifier().updateNotification(context, ConversationId.forConversation(result.getThreadId()));
   }
 
@@ -169,7 +170,9 @@ public class AutomaticSessionResetJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<AutomaticSessionResetJob> {
     @Override
-    public @NonNull AutomaticSessionResetJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull AutomaticSessionResetJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       return new AutomaticSessionResetJob(parameters,
                                           RecipientId.from(data.getString(KEY_RECIPIENT_ID)),
                                           data.getInt(KEY_DEVICE_ID),

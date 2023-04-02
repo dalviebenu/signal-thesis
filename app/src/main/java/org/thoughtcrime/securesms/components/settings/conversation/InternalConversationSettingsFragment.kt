@@ -9,26 +9,30 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.signal.core.util.Hex
 import org.signal.core.util.concurrent.SignalExecutors
+import org.signal.core.util.isAbsent
+import org.signal.libsignal.zkgroup.profiles.ProfileKey
 import org.thoughtcrime.securesms.MainActivity
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.DSLConfiguration
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.DSLSettingsText
 import org.thoughtcrime.securesms.components.settings.configure
 import org.thoughtcrime.securesms.database.SignalDatabase
+import org.thoughtcrime.securesms.database.model.RecipientRecord
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
 import org.thoughtcrime.securesms.groups.GroupId
 import org.thoughtcrime.securesms.keyvalue.SignalStore
+import org.thoughtcrime.securesms.mms.OutgoingMessage
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.recipients.RecipientForeverObserver
 import org.thoughtcrime.securesms.recipients.RecipientId
 import org.thoughtcrime.securesms.subscription.Subscriber
 import org.thoughtcrime.securesms.util.Base64
+import org.thoughtcrime.securesms.util.FeatureFlags
 import org.thoughtcrime.securesms.util.SpanUtil
 import org.thoughtcrime.securesms.util.Util
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.livedata.Store
-import org.whispersystems.signalservice.api.push.ServiceId
 import java.util.Objects
 
 /**
@@ -45,7 +49,7 @@ class InternalConversationSettingsFragment : DSLSettingsFragment(
     }
   )
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     viewModel.state.observe(viewLifecycleOwner) { state ->
       adapter.submitList(getConfiguration(state).toMappingModelList())
     }
@@ -62,27 +66,26 @@ class InternalConversationSettingsFragment : DSLSettingsFragment(
       )
 
       if (!recipient.isGroup) {
-        if (recipient.isSelf) {
-          val aci: String = SignalStore.account().aci?.toString() ?: "null"
-          longClickPref(
-            title = DSLSettingsText.from("ACI"),
-            summary = DSLSettingsText.from(aci),
-            onLongClick = { copyToClipboard(aci) }
-          )
-          val pni: String = SignalStore.account().pni?.toString() ?: "null"
-          longClickPref(
-            title = DSLSettingsText.from("PNI"),
-            summary = DSLSettingsText.from(pni),
-            onLongClick = { copyToClipboard(pni) }
-          )
-        } else {
-          val serviceId: String = recipient.serviceId.map(ServiceId::toString).orElse("null")
-          longClickPref(
-            title = DSLSettingsText.from("ServiceId"),
-            summary = DSLSettingsText.from(serviceId),
-            onLongClick = { copyToClipboard(serviceId) }
-          )
-        }
+        val e164: String = recipient.e164.orElse("null")
+        longClickPref(
+          title = DSLSettingsText.from("E164"),
+          summary = DSLSettingsText.from(e164),
+          onLongClick = { copyToClipboard(e164) }
+        )
+
+        val serviceId: String = recipient.serviceId.map { it.toString() }.orElse("null")
+        longClickPref(
+          title = DSLSettingsText.from("ServiceId"),
+          summary = DSLSettingsText.from(serviceId),
+          onLongClick = { copyToClipboard(serviceId) }
+        )
+
+        val pni: String = recipient.pni.map { it.toString() }.orElse("null")
+        longClickPref(
+          title = DSLSettingsText.from("PNI"),
+          summary = DSLSettingsText.from(pni),
+          onLongClick = { copyToClipboard(pni) }
+        )
       }
 
       if (state.groupId != null) {
@@ -215,6 +218,82 @@ class InternalConversationSettingsFragment : DSLSettingsFragment(
           }
         )
       }
+
+      sectionHeaderPref(DSLSettingsText.from("PNP"))
+
+      clickPref(
+        title = DSLSettingsText.from("Split and create threads"),
+        summary = DSLSettingsText.from("Splits this contact into two recipients and two threads so that you can test merging them together. This will remain the 'primary' recipient."),
+        onClick = {
+          MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Are you sure?")
+            .setNegativeButton(android.R.string.cancel) { d, _ -> d.dismiss() }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+              if (!recipient.hasE164()) {
+                Toast.makeText(context, "Recipient doesn't have an E164! Can't split.", Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+              }
+
+              SignalDatabase.recipients.debugClearE164AndPni(recipient.id)
+
+              val splitRecipientId: RecipientId = if (FeatureFlags.phoneNumberPrivacy()) {
+                SignalDatabase.recipients.getAndPossiblyMergePnpVerified(recipient.pni.orElse(null), recipient.pni.orElse(null), recipient.requireE164())
+              } else {
+                SignalDatabase.recipients.getAndPossiblyMerge(recipient.pni.orElse(null), recipient.requireE164())
+              }
+              val splitRecipient: Recipient = Recipient.resolved(splitRecipientId)
+              val splitThreadId: Long = SignalDatabase.threads.getOrCreateThreadIdFor(splitRecipient)
+
+              val messageId: Long = SignalDatabase.messages.insertMessageOutbox(
+                OutgoingMessage.text(splitRecipient, "Test Message ${System.currentTimeMillis()}", 0),
+                splitThreadId,
+                false,
+                null
+              )
+              SignalDatabase.messages.markAsSent(messageId, true)
+
+              SignalDatabase.threads.update(splitThreadId, true)
+
+              Toast.makeText(context, "Done! We split the E164/PNI from this contact into $splitRecipientId", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+        }
+      )
+
+      clickPref(
+        title = DSLSettingsText.from("Split without creating threads"),
+        summary = DSLSettingsText.from("Splits this contact into two recipients so you can test merging them together. This will become the PNI-based recipient. Another recipient will be made with this ACI and profile key. Doing a CDS refresh should allow you to see a Session Switchover Event, as long as you had a session with this PNI."),
+        isEnabled = FeatureFlags.phoneNumberPrivacy(),
+        onClick = {
+          MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Are you sure?")
+            .setNegativeButton(android.R.string.cancel) { d, _ -> d.dismiss() }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+              if (recipient.pni.isAbsent()) {
+                Toast.makeText(context, "Recipient doesn't have a PNI! Can't split.", Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+              }
+
+              if (recipient.serviceId.isAbsent()) {
+                Toast.makeText(context, "Recipient doesn't have a serviceId! Can't split.", Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+              }
+
+              SignalDatabase.recipients.debugRemoveAci(recipient.id)
+
+              val aciRecipientId: RecipientId = SignalDatabase.recipients.getAndPossiblyMergePnpVerified(recipient.requireServiceId(), null, null)
+
+              recipient.profileKey?.let { profileKey ->
+                SignalDatabase.recipients.setProfileKey(aciRecipientId, ProfileKey(profileKey))
+              }
+
+              SignalDatabase.recipients.debugClearProfileData(recipient.id)
+
+              Toast.makeText(context, "Done! Split the ACI and profile key off into $aciRecipientId", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+        }
+      )
     }
   }
 
@@ -224,17 +303,23 @@ class InternalConversationSettingsFragment : DSLSettingsFragment(
   }
 
   private fun buildCapabilitySpan(recipient: Recipient): CharSequence {
-    return TextUtils.concat(
-      colorize("GV1Migration", recipient.groupsV1MigrationCapability),
-      ", ",
-      colorize("AnnouncementGroup", recipient.announcementGroupCapability),
-      ", ",
-      colorize("SenderKey", recipient.senderKeyCapability),
-      ", ",
-      colorize("ChangeNumber", recipient.changeNumberCapability),
-      ", ",
-      colorize("Stories", recipient.storiesCapability),
-    )
+    val capabilities: RecipientRecord.Capabilities? = SignalDatabase.recipients.getCapabilities(recipient.id)
+
+    return if (capabilities != null) {
+      TextUtils.concat(
+        colorize("GV1Migration", capabilities.groupsV1MigrationCapability),
+        ", ",
+        colorize("AnnouncementGroup", capabilities.announcementGroupCapability),
+        ", ",
+        colorize("SenderKey", capabilities.senderKeyCapability),
+        ", ",
+        colorize("ChangeNumber", capabilities.changeNumberCapability),
+        ", ",
+        colorize("Stories", capabilities.storiesCapability)
+      )
+    } else {
+      "Recipient not found!"
+    }
   }
 
   private fun colorize(name: String, support: Recipient.Capability): CharSequence {

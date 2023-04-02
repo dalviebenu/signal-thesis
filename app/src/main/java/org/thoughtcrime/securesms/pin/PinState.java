@@ -43,7 +43,8 @@ public final class PinState {
   public static synchronized void onRegistration(@NonNull Context context,
                                                  @Nullable KbsPinData kbsData,
                                                  @Nullable String pin,
-                                                 boolean hasPinToRestore)
+                                                 boolean hasPinToRestore,
+                                                 boolean setRegistrationLockEnabled)
   {
     Log.i(TAG, "onRegistration()");
 
@@ -56,9 +57,13 @@ public final class PinState {
       TextSecurePreferences.setRegistrationLockLastReminderTime(context, System.currentTimeMillis());
       TextSecurePreferences.setRegistrationLockNextReminderInterval(context, RegistrationLockReminders.INITIAL_INTERVAL);
     } else if (kbsData != null && pin != null) {
-      Log.i(TAG, "Registration Lock V2");
-      TextSecurePreferences.setV1RegistrationLockEnabled(context, false);
-      SignalStore.kbsValues().setV2RegistrationLockEnabled(true);
+      if (setRegistrationLockEnabled) {
+        Log.i(TAG, "Registration Lock V2");
+        TextSecurePreferences.setV1RegistrationLockEnabled(context, false);
+        SignalStore.kbsValues().setV2RegistrationLockEnabled(true);
+      } else {
+        Log.i(TAG, "ReRegistration Skip SMS");
+      }
       SignalStore.kbsValues().setKbsMasterKey(kbsData, pin);
       SignalStore.pinValues().resetPinReminders();
       resetPinRetryCount(context, pin);
@@ -73,8 +78,6 @@ public final class PinState {
       SignalStore.kbsValues().clearRegistrationLockAndPin();
       TextSecurePreferences.setV1RegistrationLockEnabled(context, false);
     }
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -90,8 +93,6 @@ public final class PinState {
     SignalStore.storageService().setNeedsAccountRestore(false);
     resetPinRetryCount(context, pin);
     ClearFallbackKbsEnclaveJob.clearAll();
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -101,8 +102,6 @@ public final class PinState {
     SignalStore.kbsValues().clearRegistrationLockAndPin();
     SignalStore.storageService().setNeedsAccountRestore(false);
     SignalStore.kbsValues().setPinForgottenOrSkipped(true);
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -135,9 +134,8 @@ public final class PinState {
       bestEffortRefreshAttributes();
     } else {
       Log.i(TAG, "Not the first time setting a PIN. Enclave: " + kbsEnclave.getEnclaveName());
+      ApplicationDependencies.getJobManager().add(new RefreshAttributesJob());
     }
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -159,8 +157,6 @@ public final class PinState {
     assertState(State.PIN_WITH_REGISTRATION_LOCK_DISABLED, State.NO_REGISTRATION_LOCK);
 
     optOutOfPin();
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -186,8 +182,6 @@ public final class PinState {
                            .newPinChangeSession(SignalStore.kbsValues().getRegistrationLockTokenResponse())
                            .enableRegistrationLock(SignalStore.kbsValues().getOrCreateMasterKey());
     SignalStore.kbsValues().setV2RegistrationLockEnabled(true);
-
-    updateState(State.PIN_WITH_REGISTRATION_LOCK_ENABLED);
   }
 
   /**
@@ -209,8 +203,6 @@ public final class PinState {
                            .newPinChangeSession(SignalStore.kbsValues().getRegistrationLockTokenResponse())
                            .disableRegistrationLock();
     SignalStore.kbsValues().setV2RegistrationLockEnabled(false);
-
-    updateState(State.PIN_WITH_REGISTRATION_LOCK_DISABLED);
   }
 
   /**
@@ -236,8 +228,6 @@ public final class PinState {
 
     kbsValues.setKbsMasterKey(kbsData, pin);
     TextSecurePreferences.clearRegistrationLockV1(context);
-
-    updateState(buildInferredStateFromOtherFields());
   }
 
   /**
@@ -346,24 +336,7 @@ public final class PinState {
     }
   }
 
-  private static @NonNull State getState() {
-    String serialized = SignalStore.pinValues().getPinState();
-
-    if (serialized != null) {
-      return State.deserialize(serialized);
-    } else {
-      State state = buildInferredStateFromOtherFields();
-      SignalStore.pinValues().setPinState(state.serialize());
-      return state;
-    }
-  }
-
-  private static void updateState(@NonNull State state) {
-    Log.i(TAG, "Updating state to: " + state);
-    SignalStore.pinValues().setPinState(state.serialize());
-  }
-
-  private static @NonNull State buildInferredStateFromOtherFields() {
+  public static @NonNull State getState() {
     Context   context   = ApplicationDependencies.getApplication();
     KbsValues kbsValues = SignalStore.kbsValues();
 

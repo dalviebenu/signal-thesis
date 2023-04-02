@@ -2,7 +2,6 @@ package org.thoughtcrime.securesms.components.settings.app.account
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.Typeface
 import android.text.InputType
 import android.util.DisplayMetrics
@@ -21,7 +20,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.DSLConfiguration
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.DSLSettingsText
 import org.thoughtcrime.securesms.components.settings.configure
@@ -32,8 +30,9 @@ import org.thoughtcrime.securesms.lock.v2.CreateKbsPinActivity
 import org.thoughtcrime.securesms.lock.v2.KbsConstants
 import org.thoughtcrime.securesms.lock.v2.PinKeyboardType
 import org.thoughtcrime.securesms.pin.RegistrationLockV2Dialog
-import org.thoughtcrime.securesms.recipients.Recipient
+import org.thoughtcrime.securesms.util.FeatureFlags
 import org.thoughtcrime.securesms.util.ViewUtil
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
 
 class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFragment__account) {
@@ -42,7 +41,7 @@ class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFrag
 
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode == CreateKbsPinActivity.REQUEST_NEW_PIN && resultCode == CreateKbsPinActivity.RESULT_OK) {
-      Snackbar.make(requireView(), R.string.ConfirmKbsPinFragment__pin_created, Snackbar.LENGTH_LONG).setTextColor(Color.WHITE).show()
+      Snackbar.make(requireView(), R.string.ConfirmKbsPinFragment__pin_created, Snackbar.LENGTH_LONG).show()
     }
   }
 
@@ -51,7 +50,7 @@ class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFrag
     viewModel.refreshState()
   }
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     viewModel = ViewModelProvider(this)[AccountSettingsViewModel::class.java]
 
     viewModel.state.observe(viewLifecycleOwner) { state ->
@@ -61,7 +60,6 @@ class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFrag
 
   private fun getConfiguration(state: AccountSettingsState): DSLConfiguration {
     return configure {
-
       sectionHeaderPref(R.string.preferences_app_protection__signal_pin)
 
       @Suppress("DEPRECATION")
@@ -107,7 +105,7 @@ class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFrag
 
       sectionHeaderPref(R.string.AccountSettingsFragment__account)
 
-      if (Recipient.self().changeNumberCapability == Recipient.Capability.SUPPORTED && SignalStore.account().isRegistered) {
+      if (SignalStore.account().isRegistered) {
         clickPref(
           title = DSLSettingsText.from(R.string.AccountSettingsFragment__change_phone_number),
           onClick = {
@@ -123,6 +121,15 @@ class AccountSettingsFragment : DSLSettingsFragment(R.string.AccountSettingsFrag
           Navigation.findNavController(requireView()).safeNavigate(R.id.action_accountSettingsFragment_to_oldDeviceTransferActivity)
         }
       )
+
+      if (FeatureFlags.exportAccountData()) {
+        clickPref(
+          title = DSLSettingsText.from(R.string.AccountSettingsFragment__request_account_data),
+          onClick = {
+            Navigation.findNavController(requireView()).safeNavigate(R.id.action_accountSettingsFragment_to_exportAccountFragment)
+          }
+        )
+      }
 
       clickPref(
         title = DSLSettingsText.from(R.string.preferences__delete_account, ContextCompat.getColor(requireContext(), R.color.signal_alert_primary)),

@@ -4,14 +4,16 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.conversation.colors.ChatColorsMapper;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
-import org.thoughtcrime.securesms.database.GroupDatabase;
+import org.thoughtcrime.securesms.database.GroupTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
+import org.thoughtcrime.securesms.database.model.GroupRecord;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
@@ -68,8 +70,8 @@ public class MultiDeviceGroupUpdateJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return Data.EMPTY;
+  public @Nullable byte[] serialize() {
+    return null;
   }
 
   @Override
@@ -97,11 +99,11 @@ public class MultiDeviceGroupUpdateJob extends BaseJob {
                                                                                         () -> Log.i(TAG, "Write successful."),
                                                                                         e  -> Log.w(TAG, "Error during write.", e));
 
-    try (GroupDatabase.Reader reader = SignalDatabase.groups().getGroups()) {
+    try (GroupTable.Reader reader = SignalDatabase.groups().getGroups()) {
       DeviceGroupsOutputStream out     = new DeviceGroupsOutputStream(new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]));
       boolean                  hasData = false;
 
-      GroupDatabase.GroupRecord record;
+      GroupRecord record;
 
       while ((record = reader.getNext()) != null) {
         if (record.isV1Group()) {
@@ -204,7 +206,7 @@ public class MultiDeviceGroupUpdateJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<MultiDeviceGroupUpdateJob> {
     @Override
-    public @NonNull MultiDeviceGroupUpdateJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull MultiDeviceGroupUpdateJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
       return new MultiDeviceGroupUpdateJob(parameters);
     }
   }

@@ -5,11 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
-import org.thoughtcrime.securesms.jobs.RefreshAttributesJob
-import org.thoughtcrime.securesms.jobs.RefreshOwnProfileJob
-import org.thoughtcrime.securesms.keyvalue.PhoneNumberPrivacyValues
 import org.thoughtcrime.securesms.keyvalue.SignalStore
-import org.thoughtcrime.securesms.storage.StorageSyncHelper
 import org.thoughtcrime.securesms.util.TextSecurePreferences
 import org.thoughtcrime.securesms.util.livedata.Store
 
@@ -25,11 +21,6 @@ class PrivacySettingsViewModel(
   fun refreshBlockedCount() {
     repository.getBlockedCount { count ->
       store.update { it.copy(blockedCount = count) }
-      refresh()
-    }
-
-    repository.getPrivateStories { privateStories ->
-      store.update { it.copy(privateStories = privateStories) }
       refresh()
     }
   }
@@ -61,21 +52,13 @@ class PrivacySettingsViewModel(
     refresh()
   }
 
-  fun setPhoneNumberSharingMode(phoneNumberSharingMode: PhoneNumberPrivacyValues.PhoneNumberSharingMode) {
-    SignalStore.phoneNumberPrivacy().phoneNumberSharingMode = phoneNumberSharingMode
-    StorageSyncHelper.scheduleSyncForDataChange()
-    refresh()
-  }
-
-  fun setPhoneNumberListingMode(phoneNumberListingMode: PhoneNumberPrivacyValues.PhoneNumberListingMode) {
-    SignalStore.phoneNumberPrivacy().phoneNumberListingMode = phoneNumberListingMode
-    StorageSyncHelper.scheduleSyncForDataChange()
-    ApplicationDependencies.getJobManager().startChain(RefreshAttributesJob()).then(RefreshOwnProfileJob()).enqueue()
-    refresh()
-  }
-
   fun setIncognitoKeyboard(enabled: Boolean) {
     sharedPreferences.edit().putBoolean(TextSecurePreferences.INCOGNITO_KEYBORAD_PREF, enabled).apply()
+    refresh()
+  }
+
+  fun togglePaymentLock(enable: Boolean) {
+    SignalStore.paymentsValues().paymentLock = enable
     refresh()
   }
 
@@ -86,11 +69,6 @@ class PrivacySettingsViewModel(
 
   fun setObsoletePasswordTimeout(minutes: Int) {
     TextSecurePreferences.setPassphraseTimeoutInterval(ApplicationDependencies.getApplication(), minutes)
-    refresh()
-  }
-
-  fun setStoriesEnabled(isStoriesEnabled: Boolean) {
-    SignalStore.storyValues().isFeatureDisabled = !isStoriesEnabled
     refresh()
   }
 
@@ -107,19 +85,16 @@ class PrivacySettingsViewModel(
       screenLockActivityTimeout = TextSecurePreferences.getScreenLockTimeout(ApplicationDependencies.getApplication()),
       screenSecurity = TextSecurePreferences.isScreenSecurityEnabled(ApplicationDependencies.getApplication()),
       incognitoKeyboard = TextSecurePreferences.isIncognitoKeyboardEnabled(ApplicationDependencies.getApplication()),
-      seeMyPhoneNumber = SignalStore.phoneNumberPrivacy().phoneNumberSharingMode,
-      findMeByPhoneNumber = SignalStore.phoneNumberPrivacy().phoneNumberListingMode,
+      paymentLock = SignalStore.paymentsValues().paymentLock,
       isObsoletePasswordEnabled = !TextSecurePreferences.isPasswordDisabled(ApplicationDependencies.getApplication()),
       isObsoletePasswordTimeoutEnabled = TextSecurePreferences.isPassphraseTimeoutEnabled(ApplicationDependencies.getApplication()),
       obsoletePasswordTimeout = TextSecurePreferences.getPassphraseTimeoutInterval(ApplicationDependencies.getApplication()),
-      universalExpireTimer = SignalStore.settings().universalExpireTimer,
-      privateStories = emptyList(),
-      isStoriesEnabled = !SignalStore.storyValues().isFeatureDisabled
+      universalExpireTimer = SignalStore.settings().universalExpireTimer
     )
   }
 
   private fun updateState(state: PrivacySettingsState): PrivacySettingsState {
-    return getState().copy(blockedCount = state.blockedCount, privateStories = state.privateStories)
+    return getState().copy(blockedCount = state.blockedCount)
   }
 
   class Factory(

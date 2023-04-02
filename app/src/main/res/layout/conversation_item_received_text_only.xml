@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <org.thoughtcrime.securesms.conversation.ConversationItem xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    tools:viewBindingIgnore="true"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/conversation_item"
     android:layout_width="match_parent"
@@ -29,8 +30,8 @@
             android:layout_height="@dimen/conversation_item_reply_size"
             android:layout_gravity="center"
             android:padding="9dp"
-            android:tint="@color/signal_icon_tint_primary"
-            app:srcCompat="@drawable/ic_reply_24" />
+            android:tint="@color/signal_icon_tint_secondary"
+            app:srcCompat="@drawable/symbol_reply_24" />
 
     </FrameLayout>
 

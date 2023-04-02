@@ -16,6 +16,7 @@ import androidx.fragment.app.viewModels
 import androidx.navigation.Navigation
 import androidx.recyclerview.widget.RecyclerView
 import org.signal.core.util.ThreadUtil
+import org.signal.core.util.getParcelableExtraCompat
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.avatar.Avatar
 import org.thoughtcrime.securesms.avatar.AvatarBundler
@@ -81,21 +82,15 @@ class AvatarPickerFragment : Fragment(R.layout.avatar_picker_fragment) {
       }
 
       clearButton.visible = state.canClear
-
-      val wasEnabled = saveButton.isEnabled
-      saveButton.isEnabled = state.canSave
-      if (wasEnabled != state.canSave) {
-        val alpha = if (state.canSave) 1f else 0.5f
-        saveButton.animate().cancel()
-        saveButton.animate().alpha(alpha)
-      }
+      saveButton.isClickable = state.canSave
 
       val items = state.selectableAvatars.map { AvatarPickerItem.Model(it, it == state.currentAvatar) }
       val selectedPosition = items.indexOfFirst { it.isSelected }
 
       adapter.submitList(items) {
-        if (selectedPosition > -1)
+        if (selectedPosition > -1) {
           recycler.smoothScrollToPosition(selectedPosition)
+        }
       }
     }
 
@@ -104,6 +99,11 @@ class AvatarPickerFragment : Fragment(R.layout.avatar_picker_fragment) {
     photoButton.setOnIconClickedListener { openGallery() }
     textButton.setOnIconClickedListener { openTextEditor(null) }
     saveButton.setOnClickListener { v ->
+      if (!saveButton.isEnabled) {
+        return@setOnClickListener
+      }
+
+      saveButton.isEnabled = false
       viewModel.save(
         {
           setFragmentResult(
@@ -125,7 +125,7 @@ class AvatarPickerFragment : Fragment(R.layout.avatar_picker_fragment) {
         }
       )
     }
-    clearButton.setOnClickListener { viewModel.clear() }
+    clearButton.setOnClickListener { viewModel.clearAvatar() }
 
     setFragmentResultListener(TextAvatarCreationFragment.REQUEST_KEY_TEXT) { _, bundle ->
       val text = AvatarBundler.extractText(bundle)
@@ -148,10 +148,9 @@ class AvatarPickerFragment : Fragment(R.layout.avatar_picker_fragment) {
     ViewUtil.hideKeyboard(requireContext(), requireView())
   }
 
-  @Suppress("DEPRECATION")
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode == REQUEST_CODE_SELECT_IMAGE && resultCode == Activity.RESULT_OK && data != null) {
-      val media: Media = requireNotNull(data.getParcelableExtra(AvatarSelectionActivity.EXTRA_MEDIA))
+      val media: Media = requireNotNull(data.getParcelableExtraCompat(AvatarSelectionActivity.EXTRA_MEDIA, Media::class.java))
       viewModel.onAvatarPhotoSelectionCompleted(media)
     } else {
       super.onActivityResult(requestCode, resultCode, data)

@@ -71,6 +71,8 @@ public class Util {
 
   private static final long BUILD_LIFESPAN = TimeUnit.DAYS.toMillis(90);
 
+  public static final String COPY_LABEL = "text\u00AD";
+
   public static <T> List<T> asList(T... elements) {
     List<T> result = new LinkedList<>();
     Collections.addAll(result, elements);
@@ -159,6 +161,10 @@ public class Util {
 
   public static boolean hasItems(@Nullable Collection<?> collection) {
     return collection != null && !collection.isEmpty();
+  }
+
+  public static <K, V> boolean hasItems(@Nullable Map<K, V> map) {
+    return map != null && !map.isEmpty();
   }
 
   public static <K, V> V getOrDefault(@NonNull Map<K, V> map, K key, V defaultValue) {
@@ -388,7 +394,6 @@ public class Util {
     }
   }
 
-  @TargetApi(VERSION_CODES.LOLLIPOP)
   public static boolean isMmsCapable(Context context) {
     return (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) || OutgoingLegacyMmsConnection.isConnectionPossible(context);
   }
@@ -414,12 +419,10 @@ public class Util {
     else             return Uri.parse(uri);
   }
 
-  @TargetApi(VERSION_CODES.KITKAT)
   public static boolean isLowMemory(Context context) {
     ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
 
-    return (VERSION.SDK_INT >= VERSION_CODES.KITKAT && activityManager.isLowRamDevice()) ||
-           activityManager.getLargeMemoryClass() <= 64;
+    return activityManager.isLowRamDevice() || activityManager.getLargeMemoryClass() <= 64;
   }
 
   public static int clamp(int value, int min, int max) {
@@ -481,7 +484,7 @@ public class Util {
   }
 
   public static void copyToClipboard(@NonNull Context context, @NonNull CharSequence text) {
-    ServiceUtil.getClipboardManager(context).setPrimaryClip(ClipData.newPlainText("text", text));
+    ServiceUtil.getClipboardManager(context).setPrimaryClip(ClipData.newPlainText(COPY_LABEL, text));
   }
 
   @SafeVarargs

@@ -3,12 +3,12 @@ package org.thoughtcrime.securesms.gcm
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.core.content.ContextCompat
 import org.signal.core.util.concurrent.SignalExecutors
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
+import org.thoughtcrime.securesms.jobs.ForegroundServiceUtil
 import org.thoughtcrime.securesms.jobs.PushNotificationReceiveJob
-import org.thoughtcrime.securesms.messages.RestStrategy
+import org.thoughtcrime.securesms.messages.WebSocketStrategy
 import org.thoughtcrime.securesms.util.concurrent.SerialMonoLifoExecutor
 
 /**
@@ -39,27 +39,37 @@ object FcmFetchManager {
   @Volatile
   private var startedForeground = false
 
+  /**
+   * @return True if a service was successfully started, otherwise false.
+   */
   @JvmStatic
-  fun enqueue(context: Context, foreground: Boolean) {
+  fun enqueue(context: Context, foreground: Boolean): Boolean {
     synchronized(this) {
-      if (foreground) {
-        Log.i(TAG, "Starting in the foreground.")
-        ContextCompat.startForegroundService(context, Intent(context, FcmFetchForegroundService::class.java))
-        startedForeground = true
-      } else {
-        Log.i(TAG, "Starting in the background.")
-        context.startService(Intent(context, FcmFetchBackgroundService::class.java))
-      }
+      try {
+        if (foreground) {
+          Log.i(TAG, "Starting in the foreground.")
+          ForegroundServiceUtil.startWhenCapableOrThrow(context, Intent(context, FcmFetchForegroundService::class.java))
+          startedForeground = true
+        } else {
+          Log.i(TAG, "Starting in the background.")
+          context.startService(Intent(context, FcmFetchBackgroundService::class.java))
+        }
 
-      val performedReplace = EXECUTOR.enqueue { fetch(context) }
+        val performedReplace = EXECUTOR.enqueue { fetch(context) }
 
-      if (performedReplace) {
-        Log.i(TAG, "Already have one running and one enqueued. Ignoring.")
-      } else {
-        activeCount++
-        Log.i(TAG, "Incrementing active count to $activeCount")
+        if (performedReplace) {
+          Log.i(TAG, "Already have one running and one enqueued. Ignoring.")
+        } else {
+          activeCount++
+          Log.i(TAG, "Incrementing active count to $activeCount")
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to start service!", e)
+        return false
       }
     }
+
+    return true
   }
 
   private fun fetch(context: Context) {
@@ -73,7 +83,12 @@ object FcmFetchManager {
         context.stopService(Intent(context, FcmFetchBackgroundService::class.java))
 
         if (startedForeground) {
-          context.startService(FcmFetchForegroundService.buildStopIntent(context))
+          try {
+            context.startService(FcmFetchForegroundService.buildStopIntent(context))
+          } catch (e: IllegalStateException) {
+            Log.w(TAG, "Failed to stop the foreground notification!", e)
+          }
+
           startedForeground = false
         }
       }
@@ -82,7 +97,7 @@ object FcmFetchManager {
 
   @JvmStatic
   fun retrieveMessages(context: Context) {
-    val success = ApplicationDependencies.getBackgroundMessageRetriever().retrieveMessages(context, RestStrategy(), RestStrategy())
+    val success = ApplicationDependencies.getBackgroundMessageRetriever().retrieveMessages(context, WebSocketStrategy())
 
     if (success) {
       Log.i(TAG, "Successfully retrieved messages.")

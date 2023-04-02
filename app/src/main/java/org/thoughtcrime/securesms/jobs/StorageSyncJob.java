@@ -3,6 +3,7 @@ package org.thoughtcrime.securesms.jobs;
 import android.content.Context;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.annimon.stream.Stream;
 
@@ -11,12 +12,12 @@ import net.zetetic.database.sqlcipher.SQLiteDatabase;
 import org.signal.core.util.logging.Log;
 import org.signal.libsignal.protocol.InvalidKeyException;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
-import org.thoughtcrime.securesms.database.RecipientDatabase;
+import org.thoughtcrime.securesms.database.RecipientTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
-import org.thoughtcrime.securesms.database.UnknownStorageIdDatabase;
+import org.thoughtcrime.securesms.database.UnknownStorageIdTable;
 import org.thoughtcrime.securesms.database.model.RecipientRecord;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
@@ -33,9 +34,8 @@ import org.thoughtcrime.securesms.storage.StorageSyncHelper.WriteOperationResult
 import org.thoughtcrime.securesms.storage.StorageSyncModels;
 import org.thoughtcrime.securesms.storage.StorageSyncValidations;
 import org.thoughtcrime.securesms.storage.StoryDistributionListRecordProcessor;
-import org.thoughtcrime.securesms.stories.Stories;
 import org.thoughtcrime.securesms.transport.RetryLaterException;
-import org.thoughtcrime.securesms.util.Stopwatch;
+import org.signal.core.util.Stopwatch;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
 import org.whispersystems.signalservice.api.SignalServiceAccountManager;
@@ -132,7 +132,7 @@ import java.util.stream.Collectors;
  *     - Adding the parameter to the builder chain when creating a merged model
  * - Update builder usage in StorageSyncModels
  * - Handle the new data when writing to the local storage
- *   (i.e. {@link RecipientDatabase#applyStorageSyncContactUpdate(StorageRecordUpdate)}).
+ *   (i.e. {@link RecipientTable#applyStorageSyncContactUpdate(StorageRecordUpdate)}).
  * - Make sure that whenever you change the field in the UI, we rotate the storageId for that row
  *   and call {@link StorageSyncHelper#scheduleSyncForDataChange()}.
  * - If you're syncing a field that was otherwise already present in the UI, you'll probably want
@@ -160,8 +160,8 @@ public class StorageSyncJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return Data.EMPTY;
+  public @Nullable byte[] serialize() {
+    return null;
   }
 
   @Override
@@ -228,7 +228,7 @@ public class StorageSyncJob extends BaseJob {
     final Stopwatch                   stopwatch         = new Stopwatch("StorageSync");
     final SQLiteDatabase              db                = SignalDatabase.getRawDatabase();
     final SignalServiceAccountManager accountManager    = ApplicationDependencies.getSignalServiceAccountManager();
-    final UnknownStorageIdDatabase    storageIdDatabase = SignalDatabase.unknownStorageIds();
+    final UnknownStorageIdTable       storageIdDatabase = SignalDatabase.unknownStorageIds();
     final StorageKey                  storageServiceKey = SignalStore.storageService().getOrCreateStorageKey();
 
     final SignalStorageManifest localManifest  = SignalStore.storageService().getManifest();
@@ -246,7 +246,7 @@ public class StorageSyncJob extends BaseJob {
       self = freshSelf();
     }
 
-    Log.i(TAG, "Our version: " + localManifest.getVersion() + ", their version: " + remoteManifest.getVersion());
+    Log.i(TAG, "Our version: " + localManifest.getVersionString() + ", their version: " + remoteManifest.getVersionString());
 
     if (remoteManifest.getVersion() > localManifest.getVersion()) {
       Log.i(TAG, "[Remote Sync] Newer manifest version found!");
@@ -260,6 +260,17 @@ public class StorageSyncJob extends BaseJob {
       }
 
       Log.i(TAG, "[Remote Sync] Pre-Merge ID Difference :: " + idDifference);
+
+      if (idDifference.getLocalOnlyIds().size() > 0) {
+        int updated = SignalDatabase.recipients().removeStorageIdsFromLocalOnlyUnregisteredRecipients(idDifference.getLocalOnlyIds());
+
+        if (updated > 0) {
+          Log.w(TAG, "Found " + updated + " records that were deleted remotely but only marked unregistered locally. Removed those from local store. Recalculating diff.");
+
+          localStorageIdsBeforeMerge = getAllLocalStorageIds(self);
+          idDifference               = StorageSyncHelper.findIdDifference(remoteManifest.getStorageIds(), localStorageIdsBeforeMerge);
+        }
+      }
 
       stopwatch.split("remote-id-diff");
 
@@ -304,7 +315,7 @@ public class StorageSyncJob extends BaseJob {
     }
 
     if (remoteManifest != localManifest) {
-      Log.i(TAG, "[Remote Sync] Saved new manifest. Now at version: " + remoteManifest.getVersion());
+      Log.i(TAG, "[Remote Sync] Saved new manifest. Now at version: " + remoteManifest.getVersionString());
       SignalStore.storageService().setManifest(remoteManifest);
     }
 
@@ -316,14 +327,19 @@ public class StorageSyncJob extends BaseJob {
     try {
       self = freshSelf();
 
-      List<StorageId>           localStorageIds = getAllLocalStorageIds(self);
+      int removedUnregistered = SignalDatabase.recipients().removeStorageIdsFromOldUnregisteredRecipients(System.currentTimeMillis());
+      if (removedUnregistered > 0) {
+        Log.i(TAG, "Removed " + removedUnregistered + " recipients from storage service that have been unregistered for longer than 30 days.");
+      }
+
+      List<StorageId>           localStorageIds = getAllLocalStorageIds(self).stream().filter(it -> !it.isUnknown()).collect(Collectors.toList());
       IdDifferenceResult        idDifference    = StorageSyncHelper.findIdDifference(remoteManifest.getStorageIds(), localStorageIds);
       List<SignalStorageRecord> remoteInserts   = buildLocalStorageRecords(context, self, idDifference.getLocalOnlyIds());
       List<byte[]>              remoteDeletes   = Stream.of(idDifference.getRemoteOnlyIds()).map(StorageId::getRaw).toList();
 
       Log.i(TAG, "ID Difference :: " + idDifference);
 
-      remoteWriteOperation = new WriteOperationResult(new SignalStorageManifest(remoteManifest.getVersion() + 1, localStorageIds),
+      remoteWriteOperation = new WriteOperationResult(new SignalStorageManifest(remoteManifest.getVersion() + 1, SignalStore.account().getDeviceId(), localStorageIds),
                                                       remoteInserts,
                                                       remoteDeletes);
 
@@ -346,14 +362,14 @@ public class StorageSyncJob extends BaseJob {
         throw new RetryLaterException();
       }
 
-      Log.i(TAG, "Saved new manifest. Now at version: " + remoteWriteOperation.getManifest().getVersion());
+      Log.i(TAG, "Saved new manifest. Now at version: " + remoteWriteOperation.getManifest().getVersionString());
       SignalStore.storageService().setManifest(remoteWriteOperation.getManifest());
 
       stopwatch.split("remote-write");
 
       needsMultiDeviceSync = true;
     } else {
-      Log.i(TAG, "No remote writes needed. Still at version: " + remoteManifest.getVersion());
+      Log.i(TAG, "No remote writes needed. Still at version: " + remoteManifest.getVersionString());
     }
 
     List<Integer>   knownTypes      = getKnownTypes();
@@ -392,12 +408,10 @@ public class StorageSyncJob extends BaseJob {
   }
 
   private static void processKnownRecords(@NonNull Context context, @NonNull StorageRecordCollection records) throws IOException {
-    Recipient self = freshSelf();
-    new ContactRecordProcessor(context, self).process(records.contacts, StorageSyncHelper.KEY_GENERATOR);
+    new ContactRecordProcessor().process(records.contacts, StorageSyncHelper.KEY_GENERATOR);
     new GroupV1RecordProcessor(context).process(records.gv1, StorageSyncHelper.KEY_GENERATOR);
     new GroupV2RecordProcessor(context).process(records.gv2, StorageSyncHelper.KEY_GENERATOR);
-    self = freshSelf();
-    new AccountRecordProcessor(context, self).process(records.account, StorageSyncHelper.KEY_GENERATOR);
+    new AccountRecordProcessor(context, freshSelf()).process(records.account, StorageSyncHelper.KEY_GENERATOR);
 
     if (getKnownTypes().contains(ManifestRecord.Identifier.Type.STORY_DISTRIBUTION_LIST_VALUE)) {
       new StoryDistributionListRecordProcessor().process(records.storyDistributionLists, StorageSyncHelper.KEY_GENERATOR);
@@ -415,8 +429,8 @@ public class StorageSyncJob extends BaseJob {
       return Collections.emptyList();
     }
 
-    RecipientDatabase        recipientDatabase = SignalDatabase.recipients();
-    UnknownStorageIdDatabase storageIdDatabase = SignalDatabase.unknownStorageIds();
+    RecipientTable        recipientTable    = SignalDatabase.recipients();
+    UnknownStorageIdTable storageIdDatabase = SignalDatabase.unknownStorageIds();
 
     List<SignalStorageRecord> records = new ArrayList<>(ids.size());
 
@@ -425,9 +439,9 @@ public class StorageSyncJob extends BaseJob {
         case ManifestRecord.Identifier.Type.CONTACT_VALUE:
         case ManifestRecord.Identifier.Type.GROUPV1_VALUE:
         case ManifestRecord.Identifier.Type.GROUPV2_VALUE:
-          RecipientRecord settings = recipientDatabase.getByStorageId(id.getRaw());
+          RecipientRecord settings = recipientTable.getByStorageId(id.getRaw());
           if (settings != null) {
-            if (settings.getGroupType() == RecipientDatabase.GroupType.SIGNAL_V2 && settings.getSyncExtras().getGroupMasterKey() == null) {
+            if (settings.getGroupType() == RecipientTable.GroupType.SIGNAL_V2 && settings.getSyncExtras().getGroupMasterKey() == null) {
               throw new MissingGv2MasterKeyError();
             } else {
               records.add(StorageSyncModels.localToRemoteRecord(settings));
@@ -443,7 +457,7 @@ public class StorageSyncJob extends BaseJob {
           records.add(StorageSyncHelper.buildAccountRecord(context, self));
           break;
         case ManifestRecord.Identifier.Type.STORY_DISTRIBUTION_LIST_VALUE:
-          RecipientRecord record = recipientDatabase.getByStorageId(id.getRaw());
+          RecipientRecord record = recipientTable.getByStorageId(id.getRaw());
           if (record != null) {
             if (record.getDistributionListId() != null) {
               records.add(StorageSyncModels.localToRemoteRecord(record));
@@ -526,7 +540,7 @@ public class StorageSyncJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<StorageSyncJob> {
     @Override
-    public @NonNull StorageSyncJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull StorageSyncJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
       return new StorageSyncJob(parameters);
     }
   }

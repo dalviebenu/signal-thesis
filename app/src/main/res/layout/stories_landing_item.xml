@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    tools:viewBindingIgnore="true"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -26,13 +27,29 @@
         app:layout_constraintStart_toStartOf="@id/avatar"
         app:layout_constraintTop_toTopOf="@id/avatar" />
 
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/add_to_story"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="28dp"
+        android:padding="5dp"
+        android:background="@drawable/stories_my_story_add_background"
+        android:scaleType="centerInside"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="@id/avatar"
+        app:layout_constraintTop_toTopOf="@id/avatar"
+        app:tint="@color/signal_colorBackground"
+        app:srcCompat="@drawable/symbol_plus_compact_16" />
+
     <org.thoughtcrime.securesms.components.emoji.EmojiTextView
         android:id="@+id/sender"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/stories_landing_item_text_horizontal_margin"
         android:layout_marginEnd="@dimen/stories_landing_item_text_horizontal_margin"
-        android:textAppearance="@style/TextAppearance.Signal.Body1.Bold"
+        android:textAppearance="@style/Signal.Text.BodyLarge"
+        android:textColor="@color/signal_colorOnSurface"
         app:layout_constraintBottom_toTopOf="@id/date"
         app:layout_constraintEnd_toStartOf="@id/story"
         app:layout_constraintStart_toEndOf="@id/avatar"
@@ -51,7 +68,7 @@
         app:layout_constraintStart_toEndOf="@id/avatar"
         app:layout_constraintTop_toTopOf="@id/date"
         app:srcCompat="@drawable/ic_error_outline_24"
-        app:tint="@color/signal_alert_primary"
+        app:tint="@color/signal_colorError"
         tools:visibility="visible" />
 
     <TextView
@@ -60,8 +77,8 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="7dp"
         android:layout_marginEnd="@dimen/stories_landing_item_text_horizontal_margin"
-        android:textAppearance="@style/TextAppearance.Signal.Body2"
-        android:textColor="@color/signal_text_secondary"
+        android:textAppearance="@style/Signal.Text.BodyMedium"
+        android:textColor="@color/signal_colorOnSurfaceVariant"
         app:layout_constraintBottom_toTopOf="@id/icon"
         app:layout_constraintEnd_toStartOf="@id/story"
         app:layout_constraintStart_toEndOf="@id/error_indicator"
@@ -80,7 +97,7 @@
         app:layout_constraintStart_toEndOf="@id/avatar"
         app:layout_constraintTop_toBottomOf="@id/date"
         app:srcCompat="@drawable/ic_messages_solid_20"
-        app:tint="@color/signal_text_primary_disabled" />
+        app:tint="@color/signal_colorOnSurfaceVariant" />
 
     <com.google.android.material.imageview.ShapeableImageView
         android:id="@+id/story_multi"
@@ -93,7 +110,7 @@
         app:layout_constraintBottom_toBottomOf="@id/story"
         app:layout_constraintEnd_toEndOf="@id/story"
         app:shapeAppearance="@style/ShapeAppearanceOverlay.Signal.Story.Preview"
-        tools:background="@color/green"
+        tools:background="@color/green_500"
         tools:visibility="visible" />
 
     <com.google.android.material.imageview.ShapeableImageView

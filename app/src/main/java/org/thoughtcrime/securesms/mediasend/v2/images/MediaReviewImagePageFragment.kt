@@ -6,6 +6,7 @@ import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import io.reactivex.rxjava3.disposables.Disposable
+import org.signal.core.util.getParcelableCompat
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.mediasend.v2.HudCommand
 import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionViewModel
@@ -69,11 +70,6 @@ class MediaReviewImagePageFragment : Fragment(R.layout.fragment_container), Imag
     }
   }
 
-  override fun onViewStateRestored(savedInstanceState: Bundle?) {
-    super.onViewStateRestored(savedInstanceState)
-    restoreImageEditorState()
-  }
-
   override fun onSaveInstanceState(outState: Bundle) {
     super.onSaveInstanceState(outState)
 
@@ -84,7 +80,6 @@ class MediaReviewImagePageFragment : Fragment(R.layout.fragment_container), Imag
     val fragmentInManager: ImageEditorFragment? = childFragmentManager.findFragmentByTag(IMAGE_EDITOR_TAG) as? ImageEditorFragment
 
     return if (fragmentInManager != null) {
-      sharedViewModel.sendCommand(HudCommand.ResumeEntryTransition)
       fragmentInManager
     } else {
       val imageEditorFragment = ImageEditorFragment.newInstance(
@@ -103,7 +98,7 @@ class MediaReviewImagePageFragment : Fragment(R.layout.fragment_container), Imag
     }
   }
 
-  private fun requireUri(): Uri = requireNotNull(requireArguments().getParcelable(ARG_URI))
+  private fun requireUri(): Uri = requireNotNull(requireArguments().getParcelableCompat(ARG_URI, Uri::class.java))
 
   override fun onTouchEventsNeeded(needed: Boolean) {
     if (isResumed) {
@@ -131,7 +126,7 @@ class MediaReviewImagePageFragment : Fragment(R.layout.fragment_container), Imag
   }
 
   override fun onCancelEditing() {
-    restoreImageEditorState()
+    restoreState()
   }
 
   override fun onMainImageLoaded() {
@@ -142,7 +137,7 @@ class MediaReviewImagePageFragment : Fragment(R.layout.fragment_container), Imag
     sharedViewModel.sendCommand(HudCommand.ResumeEntryTransition)
   }
 
-  private fun restoreImageEditorState() {
+  override fun restoreState() {
     val data = sharedViewModel.getEditorState(requireUri()) as? ImageEditorFragment.Data
 
     if (data != null) {

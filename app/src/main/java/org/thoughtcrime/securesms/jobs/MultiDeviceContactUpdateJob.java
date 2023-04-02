@@ -16,17 +16,16 @@ import org.signal.libsignal.zkgroup.profiles.ProfileKey;
 import org.thoughtcrime.securesms.conversation.colors.ChatColorsMapper;
 import org.thoughtcrime.securesms.crypto.ProfileKeyUtil;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
-import org.thoughtcrime.securesms.database.RecipientDatabase;
+import org.thoughtcrime.securesms.database.RecipientTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.database.model.IdentityRecord;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
 import org.thoughtcrime.securesms.net.NotPushRegisteredException;
 import org.thoughtcrime.securesms.permissions.Permissions;
-import org.thoughtcrime.securesms.profiles.AvatarHelper;
 import org.thoughtcrime.securesms.providers.BlobProvider;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
@@ -102,10 +101,10 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_RECIPIENT, recipientId != null ? recipientId.serialize() : null)
-                             .putBoolean(KEY_FORCE_SYNC, forceSync)
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_RECIPIENT, recipientId != null ? recipientId.serialize() : null)
+                                    .putBoolean(KEY_FORCE_SYNC, forceSync)
+                                    .serialize();
   }
 
   @Override
@@ -144,7 +143,7 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
       DeviceContactsOutputStream out       = new DeviceContactsOutputStream(writeDetails.outputStream);
       Recipient                  recipient = Recipient.resolved(recipientId);
 
-      if (recipient.getRegistered() == RecipientDatabase.RegisteredState.NOT_REGISTERED) {
+      if (recipient.getRegistered() == RecipientTable.RegisteredState.NOT_REGISTERED) {
         Log.w(TAG, recipientId + " not registered!");
         return;
       }
@@ -156,7 +155,7 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
 
       out.write(new DeviceContact(RecipientUtil.toSignalServiceAddress(context, recipient),
                                   Optional.ofNullable(recipient.isGroup() || recipient.isSystemContact() ? recipient.getDisplayName(context) : null),
-                                  getAvatar(recipient.getId(), recipient.getContactUri()),
+                                  getSystemAvatar(recipient.getContactUri()),
                                   Optional.of(ChatColorsMapper.getMaterialColor(recipient.getChatColors()).serialize()),
                                   verifiedMessage,
                                   ProfileKeyUtil.profileKeyOptional(recipient.getProfileKey()),
@@ -218,7 +217,7 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
 
         out.write(new DeviceContact(RecipientUtil.toSignalServiceAddress(context, recipient),
                                     name,
-                                    getAvatar(recipient.getId(), recipient.getContactUri()),
+                                    getSystemAvatar(recipient.getContactUri()),
                                     Optional.of(ChatColorsMapper.getMaterialColor(recipient.getChatColors()).serialize()),
                                     verified,
                                     profileKey,
@@ -291,44 +290,6 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
     } else {
       Log.w(TAG, "Nothing to write!");
     }
-  }
-
-  private Optional<SignalServiceAttachmentStream> getAvatar(@NonNull RecipientId recipientId, @Nullable Uri uri) {
-    Optional<SignalServiceAttachmentStream> stream;
-
-    if (SignalStore.settings().isPreferSystemContactPhotos()) {
-      stream = getSystemAvatar(uri);
-
-      if (!stream.isPresent()) {
-        stream = getProfileAvatar(recipientId);
-      }
-    } else {
-      stream = getProfileAvatar(recipientId);
-
-      if (!stream.isPresent()) {
-        stream = getSystemAvatar(uri);
-      }
-    }
-
-    return stream;
-  }
-
-  private Optional<SignalServiceAttachmentStream> getProfileAvatar(@NonNull RecipientId recipientId) {
-    if (AvatarHelper.hasAvatar(context, recipientId)) {
-      try {
-        long length = AvatarHelper.getAvatarLength(context, recipientId);
-        return Optional.of(SignalServiceAttachmentStream.newStreamBuilder()
-                                                        .withStream(AvatarHelper.getAvatar(context, recipientId))
-                                                        .withContentType("image/*")
-                                                        .withLength(length)
-                                                        .build());
-      } catch (IOException e) {
-        Log.w(TAG, "Failed to read profile avatar!", e);
-        return Optional.empty();
-      }
-    }
-
-    return Optional.empty();
   }
 
   private Optional<SignalServiceAttachmentStream> getSystemAvatar(@Nullable Uri uri) {
@@ -443,7 +404,9 @@ public class MultiDeviceContactUpdateJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<MultiDeviceContactUpdateJob> {
     @Override
-    public @NonNull MultiDeviceContactUpdateJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull MultiDeviceContactUpdateJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       String      serialized = data.getString(KEY_RECIPIENT);
       RecipientId address    = serialized != null ? RecipientId.from(serialized) : null;
 

@@ -1,5 +1,7 @@
 package org.thoughtcrime.securesms.components.settings
 
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
@@ -8,9 +10,10 @@ import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
 import androidx.annotation.CallSuper
+import androidx.annotation.Discouraged
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.materialswitch.MaterialSwitch
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.models.AsyncSwitch
@@ -22,13 +25,16 @@ import org.thoughtcrime.securesms.util.ViewUtil
 import org.thoughtcrime.securesms.util.adapter.mapping.LayoutFactory
 import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.adapter.mapping.MappingViewHolder
+import org.thoughtcrime.securesms.util.views.LearnMoreTextView
 import org.thoughtcrime.securesms.util.visible
 
+@Discouraged("The DSL API can be completely replaced by compose. See ComposeFragment or ComposeBottomSheetFragment for an alternative to this API")
 class DSLSettingsAdapter : MappingAdapter() {
   init {
     registerFactory(ClickPreference::class.java, LayoutFactory(::ClickPreferenceViewHolder, R.layout.dsl_preference_item))
     registerFactory(LongClickPreference::class.java, LayoutFactory(::LongClickPreferenceViewHolder, R.layout.dsl_preference_item))
     registerFactory(TextPreference::class.java, LayoutFactory(::TextPreferenceViewHolder, R.layout.dsl_preference_item))
+    registerFactory(LearnMoreTextPreference::class.java, LayoutFactory(::LearnMoreTextPreferenceViewHolder, R.layout.dsl_learn_more_preference_item))
     registerFactory(RadioListPreference::class.java, LayoutFactory(::RadioListPreferenceViewHolder, R.layout.dsl_preference_item))
     registerFactory(MultiSelectListPreference::class.java, LayoutFactory(::MultiSelectListPreferenceViewHolder, R.layout.dsl_preference_item))
     registerFactory(ExternalLinkPreference::class.java, LayoutFactory(::ExternalLinkPreferenceViewHolder, R.layout.dsl_preference_item))
@@ -90,6 +96,14 @@ abstract class PreferenceViewHolder<T : PreferenceModel<T>>(itemView: View) : Ma
 }
 
 class TextPreferenceViewHolder(itemView: View) : PreferenceViewHolder<TextPreference>(itemView)
+
+class LearnMoreTextPreferenceViewHolder(itemView: View) : PreferenceViewHolder<LearnMoreTextPreference>(itemView) {
+  override fun bind(model: LearnMoreTextPreference) {
+    super.bind(model)
+    (titleView as LearnMoreTextView).setOnLinkClickListener { model.onClick() }
+    (summaryView as LearnMoreTextView).setOnLinkClickListener { model.onClick() }
+  }
+}
 
 class ClickPreferenceViewHolder(itemView: View) : PreferenceViewHolder<ClickPreference>(itemView) {
   override fun bind(model: ClickPreference) {
@@ -191,12 +205,19 @@ class MultiSelectListPreferenceViewHolder(itemView: View) : PreferenceViewHolder
 
 class SwitchPreferenceViewHolder(itemView: View) : PreferenceViewHolder<SwitchPreference>(itemView) {
 
-  private val switchWidget: SwitchMaterial = itemView.findViewById(R.id.switch_widget)
+  private val switchWidget: MaterialSwitch = itemView.findViewById(R.id.switch_widget)
 
   override fun bind(model: SwitchPreference) {
     super.bind(model)
+    switchWidget.setOnCheckedChangeListener(null)
+
     switchWidget.isEnabled = model.isEnabled
     switchWidget.isChecked = model.isChecked
+
+    switchWidget.setOnCheckedChangeListener { _, _ ->
+      model.onClick()
+    }
+
     itemView.setOnClickListener {
       model.onClick()
     }
@@ -220,7 +241,9 @@ class ExternalLinkPreferenceViewHolder(itemView: View) : PreferenceViewHolder<Ex
   override fun bind(model: ExternalLinkPreference) {
     super.bind(model)
 
-    val externalLinkIcon = requireNotNull(ContextCompat.getDrawable(context, R.drawable.ic_open_20))
+    val externalLinkIcon = requireNotNull(ContextCompat.getDrawable(context, R.drawable.symbol_open_20)).apply {
+      colorFilter = PorterDuffColorFilter(ContextCompat.getColor(context, R.color.signal_icon_tint_primary), PorterDuff.Mode.SRC_IN)
+    }
     externalLinkIcon.setBounds(0, 0, ViewUtil.dpToPx(20), ViewUtil.dpToPx(20))
 
     if (ViewUtil.isLtr(itemView)) {

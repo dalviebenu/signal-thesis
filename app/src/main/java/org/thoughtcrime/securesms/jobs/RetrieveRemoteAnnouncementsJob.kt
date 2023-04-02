@@ -2,12 +2,16 @@ package org.thoughtcrime.securesms.jobs
 
 import androidx.core.os.LocaleListCompat
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.json.JSONObject
 import org.signal.core.util.Hex
 import org.signal.core.util.ThreadUtil
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.BuildConfig
-import org.thoughtcrime.securesms.database.MessageDatabase
-import org.thoughtcrime.securesms.database.RemoteMegaphoneDatabase
+import org.thoughtcrime.securesms.conversationlist.model.ConversationFilter
+import org.thoughtcrime.securesms.database.MessageTable
+import org.thoughtcrime.securesms.database.RemoteMegaphoneTable
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.database.model.RemoteMegaphoneRecord
 import org.thoughtcrime.securesms.database.model.addButton
@@ -15,8 +19,8 @@ import org.thoughtcrime.securesms.database.model.addLink
 import org.thoughtcrime.securesms.database.model.addStyle
 import org.thoughtcrime.securesms.database.model.databaseprotos.BodyRangeList
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
-import org.thoughtcrime.securesms.jobmanager.Data
 import org.thoughtcrime.securesms.jobmanager.Job
+import org.thoughtcrime.securesms.jobmanager.JsonJobData
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint
 import org.thoughtcrime.securesms.keyvalue.SignalStore
 import org.thoughtcrime.securesms.notifications.v2.ConversationId
@@ -40,7 +44,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
 
   companion object {
     const val KEY = "RetrieveReleaseChannelJob"
-    private const val MANIFEST = "${S3.DYNAMIC_PATH}/release-notes/release-notes.json"
+    private const val MANIFEST = "${S3.DYNAMIC_PATH}/release-notes/release-notes-v2.json"
     private const val BASE_RELEASE_NOTE = "${S3.STATIC_PATH}/release-notes"
     private const val KEY_FORCE = "force"
 
@@ -77,7 +81,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     }
   }
 
-  override fun serialize(): Data = Data.Builder().putBoolean(KEY_FORCE, force).build()
+  override fun serialize(): ByteArray? = JsonJobData.Builder().putBoolean(KEY_FORCE, force).serialize()
 
   override fun getFactoryKey(): String = KEY
 
@@ -113,7 +117,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
         Log.i(TAG, "First check, saving code and skipping download")
         values.highestVersionNoteReceived = BuildConfig.CANONICAL_VERSION_CODE
       }
-      MessageDigest.isEqual(manifestMd5, values.previousManifestMd5) -> {
+      !force && MessageDigest.isEqual(manifestMd5, values.previousManifestMd5) -> {
         Log.i(TAG, "Manifest has not changed since last fetch.")
       }
       else -> fetchManifest(manifestMd5)
@@ -147,7 +151,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     }
 
     if (!values.hasMetConversationRequirement) {
-      if ((SignalDatabase.threads.getArchivedConversationListCount() + SignalDatabase.threads.getUnarchivedConversationListCount()) < 6) {
+      if ((SignalDatabase.threads.getArchivedConversationListCount(ConversationFilter.OFF) + SignalDatabase.threads.getUnarchivedConversationListCount(ConversationFilter.OFF)) < 6) {
         Log.i(TAG, "User does not have enough conversations to show release channel")
         values.nextScheduledCheck = System.currentTimeMillis() + RETRIEVE_FREQUENCY
         return
@@ -178,6 +182,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
 
     val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(Recipient.resolved(values.releaseChannelRecipientId!!))
     var highestVersion = values.highestVersionNoteReceived
+    var addedNewNotes = false
 
     resolvedNotes
       .filterNotNull()
@@ -197,20 +202,20 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
           bodyRangeList.addButton(note.translation.callToActionText, note.releaseNote.ctaId, body.lastIndex, 0)
         }
 
-        ThreadUtil.sleep(1)
-        val insertResult: MessageDatabase.InsertResult? = ReleaseChannel.insertAnnouncement(
+        ThreadUtil.sleep(5)
+        val insertResult: MessageTable.InsertResult? = ReleaseChannel.insertReleaseChannelMessage(
           recipientId = values.releaseChannelRecipientId!!,
           body = body,
           threadId = threadId,
           messageRanges = bodyRangeList.build(),
-          image = note.translation.image,
-          imageWidth = note.translation.imageWidth?.toIntOrNull() ?: 0,
-          imageHeight = note.translation.imageHeight?.toIntOrNull() ?: 0
+          media = note.translation.media,
+          mediaWidth = note.translation.mediaWidth?.toIntOrNull() ?: 0,
+          mediaHeight = note.translation.mediaHeight?.toIntOrNull() ?: 0,
+          mediaType = note.translation.mediaContentType ?: "image/webp"
         )
 
-        SignalDatabase.sms.insertBoostRequestMessage(values.releaseChannelRecipientId!!, threadId)
-
         if (insertResult != null) {
+          addedNewNotes = addedNewNotes || (note.releaseNote.includeBoostMessage ?: true)
           SignalDatabase.attachments.getAttachmentsForMessage(insertResult.messageId)
             .forEach { ApplicationDependencies.getJobManager().add(AttachmentDownloadJob(insertResult.messageId, it.attachmentId, false)) }
 
@@ -220,6 +225,11 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
           highestVersion = max(highestVersion, note.releaseNote.androidMinVersion!!.toInt())
         }
       }
+
+    if (addedNewNotes) {
+      ThreadUtil.sleep(5)
+      SignalDatabase.messages.insertBoostRequestMessage(values.releaseChannelRecipientId!!, threadId)
+    }
 
     values.highestVersionNoteReceived = highestVersion
   }
@@ -270,7 +280,9 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
             title = megaphone.translation.title,
             body = megaphone.translation.body,
             primaryActionText = megaphone.translation.primaryCtaText,
-            secondaryActionText = megaphone.translation.secondaryCtaText
+            secondaryActionText = megaphone.translation.secondaryCtaText,
+            primaryActionData = megaphone.remoteMegaphone.primaryCtaData?.takeIf { it is ObjectNode }?.let { JSONObject(it.toString()) },
+            secondaryActionData = megaphone.remoteMegaphone.secondaryCtaData?.takeIf { it is ObjectNode }?.let { JSONObject(it.toString()) }
           )
 
           SignalDatabase.remoteMegaphones.insert(record)
@@ -283,7 +295,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
 
     val megaphonesToDelete = existingMegaphones
       .filterKeys { !manifestMegaphones.contains(it) }
-      .filterValues { it.minimumVersion != RemoteMegaphoneDatabase.VERSION_FINISHED }
+      .filterValues { it.minimumVersion != RemoteMegaphoneTable.VERSION_FINISHED }
 
     if (megaphonesToDelete.isNotEmpty()) {
       Log.i(TAG, "Clearing ${megaphonesToDelete.size} stale megaphones ${megaphonesToDelete.keys}")
@@ -340,7 +352,7 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     }
 
     for (index in 0 until localeList.size()) {
-      val locale: Locale = localeList.get(index)
+      val locale: Locale = localeList.get(index) ?: continue
       if (locale.language.isNotEmpty()) {
         if (locale.country.isNotEmpty()) {
           potentialNoteUrls += "$this/${locale.language}_${locale.country}.json"
@@ -365,7 +377,8 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     @JsonProperty val countries: String?,
     @JsonProperty val androidMinVersion: String?,
     @JsonProperty val link: String?,
-    @JsonProperty val ctaId: String?
+    @JsonProperty val ctaId: String?,
+    @JsonProperty val includeBoostMessage: Boolean?
   )
 
   data class RemoteMegaphone(
@@ -378,18 +391,21 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     @JsonProperty val showForNumberOfDays: Long?,
     @JsonProperty val conditionalId: String?,
     @JsonProperty val primaryCtaId: String?,
-    @JsonProperty val secondaryCtaId: String?
+    @JsonProperty val secondaryCtaId: String?,
+    @JsonProperty val primaryCtaData: JsonNode?,
+    @JsonProperty val secondaryCtaData: JsonNode?
   )
 
   data class TranslatedReleaseNote(
     @JsonProperty val uuid: String,
-    @JsonProperty val image: String?,
-    @JsonProperty val imageWidth: String?,
-    @JsonProperty val imageHeight: String?,
+    @JsonProperty val media: String?,
+    @JsonProperty val mediaWidth: String?,
+    @JsonProperty val mediaHeight: String?,
+    @JsonProperty val mediaContentType: String?,
     @JsonProperty val linkText: String?,
     @JsonProperty val title: String,
     @JsonProperty val body: String,
-    @JsonProperty val callToActionText: String?,
+    @JsonProperty val callToActionText: String?
   )
 
   data class TranslatedRemoteMegaphone(
@@ -398,11 +414,12 @@ class RetrieveRemoteAnnouncementsJob private constructor(private val force: Bool
     @JsonProperty val title: String,
     @JsonProperty val body: String,
     @JsonProperty val primaryCtaText: String?,
-    @JsonProperty val secondaryCtaText: String?,
+    @JsonProperty val secondaryCtaText: String?
   )
 
   class Factory : Job.Factory<RetrieveRemoteAnnouncementsJob> {
-    override fun create(parameters: Parameters, data: Data): RetrieveRemoteAnnouncementsJob {
+    override fun create(parameters: Parameters, serializedData: ByteArray?): RetrieveRemoteAnnouncementsJob {
+      val data = JsonJobData.deserialize(serializedData)
       return RetrieveRemoteAnnouncementsJob(data.getBoolean(KEY_FORCE), parameters)
     }
   }

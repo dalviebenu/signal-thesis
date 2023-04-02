@@ -6,6 +6,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -17,18 +18,21 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.ViewCompat
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.setFragmentResultListener
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import app.cash.exhaustive.Exhaustive
-import io.reactivex.rxjava3.disposables.CompositeDisposable
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
+import org.signal.core.util.concurrent.SimpleTask
 import org.thoughtcrime.securesms.R
-import org.thoughtcrime.securesms.TransportOption
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
-import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardFragment
+import org.thoughtcrime.securesms.conversation.MessageSendType
+import org.thoughtcrime.securesms.conversation.ScheduleMessageContextMenu
+import org.thoughtcrime.securesms.conversation.ScheduleMessageTimePickerBottomSheet
+import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardActivity
 import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardFragmentArgs
 import org.thoughtcrime.securesms.mediasend.MediaSendActivityResult
 import org.thoughtcrime.securesms.mediasend.v2.HudCommand
@@ -38,9 +42,14 @@ import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionNavigator.Companion
 import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionState
 import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionViewModel
 import org.thoughtcrime.securesms.mediasend.v2.MediaValidator
+import org.thoughtcrime.securesms.mediasend.v2.stories.StoriesMultiselectForwardActivity
 import org.thoughtcrime.securesms.mms.SentMediaQuality
 import org.thoughtcrime.securesms.permissions.Permissions
+import org.thoughtcrime.securesms.recipients.Recipient
+import org.thoughtcrime.securesms.scribbles.ImageEditorFragment
+import org.thoughtcrime.securesms.util.LifecycleDisposable
 import org.thoughtcrime.securesms.util.MediaUtil
+import org.thoughtcrime.securesms.util.SystemWindowInsetsSetter
 import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.fragments.requireListener
 import org.thoughtcrime.securesms.util.views.TouchInterceptingFrameLayout
@@ -49,7 +58,7 @@ import org.thoughtcrime.securesms.util.visible
 /**
  * Allows the user to view and edit selected media.
  */
-class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
+class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment), ScheduleMessageTimePickerBottomSheet.ScheduleCallback {
 
   private val sharedViewModel: MediaSelectionViewModel by viewModels(
     ownerProducer = { requireActivity() }
@@ -61,7 +70,7 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
   private lateinit var cropAndRotateButton: View
   private lateinit var qualityButton: ImageView
   private lateinit var saveButton: View
-  private lateinit var sendButton: View
+  private lateinit var sendButton: ImageView
   private lateinit var addMediaButton: View
   private lateinit var viewOnceButton: ViewSwitcher
   private lateinit var viewOnceMessage: TextView
@@ -76,14 +85,20 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
   private lateinit var progressWrapper: TouchInterceptingFrameLayout
 
   private val navigator = MediaSelectionNavigator(
-    toGallery = R.id.action_mediaReviewFragment_to_mediaGalleryFragment,
+    toGallery = R.id.action_mediaReviewFragment_to_mediaGalleryFragment
   )
 
   private var animatorSet: AnimatorSet? = null
-  private var disposables: CompositeDisposable? = null
+  private var disposables: LifecycleDisposable = LifecycleDisposable()
+
+  private var scheduledSendTime: Long? = null
 
   override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
     postponeEnterTransition()
+
+    SystemWindowInsetsSetter.attach(view, viewLifecycleOwner)
+
+    disposables.bindTo(viewLifecycleOwner)
 
     callback = requireListener()
 
@@ -110,15 +125,12 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
 
     val pagerAdapter = MediaReviewFragmentPagerAdapter(this)
 
-    disposables = CompositeDisposable()
-    disposables?.add(
-      sharedViewModel.hudCommands.subscribe {
-        when (it) {
-          HudCommand.ResumeEntryTransition -> startPostponedEnterTransition()
-          else -> Unit
-        }
+    disposables += sharedViewModel.hudCommands.subscribe {
+      when (it) {
+        HudCommand.ResumeEntryTransition -> startPostponedEnterTransition()
+        else -> Unit
       }
-    )
+    }
 
     pager.adapter = pagerAdapter
 
@@ -138,18 +150,86 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
       sharedViewModel.sendCommand(HudCommand.SaveMedia)
     }
 
-    setFragmentResultListener(MultiselectForwardFragment.RESULT_KEY) { _, bundle ->
-      val parcelizedKeys: List<ContactSearchKey.ParcelableRecipientSearchKey> = bundle.getParcelableArrayList(MultiselectForwardFragment.RESULT_SELECTION)!!
-      val contactSearchKeys = parcelizedKeys.map { it.asRecipientSearchKey() }
-      performSend(contactSearchKeys)
+    val multiselectContract = MultiselectForwardActivity.SelectionContract()
+    val storiesContract = StoriesMultiselectForwardActivity.SelectionContract()
+
+    val multiselectLauncher = registerForActivityResult(multiselectContract) { keys ->
+      if (keys.isNotEmpty()) {
+        performSend(keys)
+      }
+    }
+
+    val storiesLauncher = registerForActivityResult(storiesContract) { keys ->
+      if (keys.isNotEmpty()) {
+        performSend(keys)
+      }
     }
 
     sendButton.setOnClickListener {
+      val viewOnce: Boolean = sharedViewModel.state.value?.viewOnceToggleState == MediaSelectionState.ViewOnceToggleState.ONCE
+
       if (sharedViewModel.isContactSelectionRequired) {
-        val args = MultiselectForwardFragmentArgs(false, title = R.string.MediaReviewFragment__send_to)
-        MultiselectForwardFragment.showFullScreen(parentFragmentManager, args)
+        val args = MultiselectForwardFragmentArgs(
+          false,
+          title = R.string.MediaReviewFragment__send_to,
+          storySendRequirements = sharedViewModel.getStorySendRequirements(),
+          isSearchEnabled = !sharedViewModel.isStory(),
+          isViewOnce = viewOnce
+        )
+
+        if (sharedViewModel.isStory()) {
+          val snapshot = sharedViewModel.state.value
+
+          if (snapshot != null) {
+            sendButton.isEnabled = false
+            SimpleTask.run(viewLifecycleOwner.lifecycle, {
+              snapshot.selectedMedia.take(2).map { media ->
+                val editorData = snapshot.editorStateMap[media.uri]
+                if (MediaUtil.isImageType(media.mimeType) && editorData != null && editorData is ImageEditorFragment.Data) {
+                  val model = editorData.readModel()
+                  if (model != null) {
+                    ImageEditorFragment.renderToSingleUseBlob(requireContext(), model)
+                  } else {
+                    media.uri
+                  }
+                } else {
+                  media.uri
+                }
+              }
+            }, {
+              sendButton.isEnabled = true
+              storiesLauncher.launch(StoriesMultiselectForwardActivity.Args(args, it))
+            })
+          } else {
+            storiesLauncher.launch(StoriesMultiselectForwardActivity.Args(args, emptyList()))
+          }
+          scheduledSendTime = null
+        } else {
+          multiselectLauncher.launch(args)
+        }
+      } else if (sharedViewModel.isAddToGroupStoryFlow) {
+        MaterialAlertDialogBuilder(requireContext())
+          .setMessage(getString(R.string.MediaReviewFragment__add_to_the_group_story, sharedViewModel.state.value!!.recipient!!.getDisplayName(requireContext())))
+          .setPositiveButton(R.string.MediaReviewFragment__add_to_story) { _, _ -> performSend() }
+          .setNegativeButton(android.R.string.cancel) { _, _ -> }
+          .show()
+        scheduledSendTime = null
       } else {
         performSend()
+      }
+    }
+    if (!sharedViewModel.isStory()) {
+      sendButton.setOnLongClickListener {
+        ScheduleMessageContextMenu.show(it, (requireView() as ViewGroup)) { time: Long ->
+          if (time == -1L) {
+            scheduledSendTime = null
+            ScheduleMessageTimePickerBottomSheet.showSchedule(childFragmentManager)
+          } else {
+            scheduledSendTime = time
+            sendButton.performClick()
+          }
+        }
+        true
       }
     }
 
@@ -179,7 +259,7 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
       }
     })
 
-    val selectionAdapter = MappingAdapter()
+    val selectionAdapter = MappingAdapter(false)
     MediaReviewAddItem.register(selectionAdapter) {
       launchGallery()
     }
@@ -200,7 +280,7 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
         state.selectedMedia.map { MediaReviewSelectedItem.Model(it, state.focusedMedia == it) } + MediaReviewAddItem.Model
       )
 
-      presentSendButton(state.transportOption)
+      presentSendButton(state.sendType, state.recipient)
       presentPager(state)
       presentAddMessageEntry(state.message)
       presentImageQualityToggle(state.quality)
@@ -210,7 +290,10 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
       computeViewStateAndAnimate(state)
     }
 
-    sharedViewModel.mediaErrors.observe(viewLifecycleOwner, this::handleMediaValidatorFilterError)
+    disposables.bindTo(viewLifecycleOwner)
+    disposables += sharedViewModel.mediaErrors
+      .observeOn(AndroidSchedulers.mainThread())
+      .subscribe(this::handleMediaValidatorFilterError)
 
     requireActivity().onBackPressedDispatcher.addCallback(
       viewLifecycleOwner,
@@ -229,11 +312,6 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
 
   override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
     Permissions.onRequestPermissionsResult(this, requestCode, permissions, grantResults)
-  }
-
-  override fun onDestroyView() {
-    disposables?.dispose()
-    super.onDestroyView()
   }
 
   private fun handleMediaValidatorFilterError(error: MediaValidator.FilterError) {
@@ -267,8 +345,8 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
       .setInterpolator(MediaAnimations.interpolator)
       .alpha(1f)
 
-    sharedViewModel
-      .send(selection.filterIsInstance(ContactSearchKey.RecipientSearchKey::class.java))
+    disposables += sharedViewModel
+      .send(selection.filterIsInstance(ContactSearchKey.RecipientSearchKey::class.java), scheduledSendTime)
       .subscribe(
         { result -> callback.onSentWithResult(result) },
         { error -> callback.onSendError(error) },
@@ -283,20 +361,32 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
   private fun presentImageQualityToggle(quality: SentMediaQuality) {
     qualityButton.setImageResource(
       when (quality) {
-        SentMediaQuality.STANDARD -> R.drawable.ic_sq_36
-        SentMediaQuality.HIGH -> R.drawable.ic_hq_36
+        SentMediaQuality.STANDARD -> R.drawable.ic_sq_24
+        SentMediaQuality.HIGH -> R.drawable.ic_hq_24
       }
     )
   }
 
-  private fun presentSendButton(transportOption: TransportOption) {
-    val sendButtonTint = if (transportOption.type == TransportOption.Type.TEXTSECURE) {
-      R.color.core_ultramarine
-    } else {
-      R.color.core_grey_50
+  private fun presentSendButton(sendType: MessageSendType, recipient: Recipient?) {
+    val sendButtonBackgroundTint = when {
+      recipient != null -> recipient.chatColors.asSingleColor()
+      sendType.usesSignalTransport -> ContextCompat.getColor(requireContext(), R.color.signal_colorOnSecondaryContainer)
+      else -> ContextCompat.getColor(requireContext(), R.color.core_grey_50)
     }
 
-    ViewCompat.setBackgroundTintList(sendButton, ColorStateList.valueOf(ContextCompat.getColor(requireContext(), sendButtonTint)))
+    val sendButtonForegroundDrawable = when {
+      recipient != null -> ContextCompat.getDrawable(requireContext(), R.drawable.ic_send_24)
+      else -> ContextCompat.getDrawable(requireContext(), R.drawable.ic_arrow_end_24)
+    }
+
+    val sendButtonForegroundTint = when {
+      recipient != null -> ContextCompat.getColor(requireContext(), R.color.signal_colorOnCustom)
+      else -> ContextCompat.getColor(requireContext(), R.color.signal_colorSecondaryContainer)
+    }
+
+    sendButton.setImageDrawable(sendButtonForegroundDrawable)
+    sendButton.setColorFilter(sendButtonForegroundTint)
+    ViewCompat.setBackgroundTintList(sendButton, ColorStateList.valueOf(sendButtonBackgroundTint))
   }
 
   private fun presentPager(state: MediaSelectionState) {
@@ -412,24 +502,22 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
   }
 
   private fun computeSendButtonAnimators(state: MediaSelectionState): List<Animator> {
-
     val slideIn = listOf(
-      MediaReviewAnimatorController.getSlideInAnimator(sendButton),
+      MediaReviewAnimatorController.getSlideInAnimator(sendButton)
     )
 
     return slideIn + if (state.isTouchEnabled) {
       listOf(
-        MediaReviewAnimatorController.getFadeInAnimator(sendButton, state.canSend),
+        MediaReviewAnimatorController.getFadeInAnimator(sendButton, state.canSend)
       )
     } else {
       listOf(
-        MediaReviewAnimatorController.getFadeOutAnimator(sendButton, state.canSend),
+        MediaReviewAnimatorController.getFadeOutAnimator(sendButton, state.canSend)
       )
     }
   }
 
   private fun computeSaveButtonAnimators(state: MediaSelectionState): List<Animator> {
-
     val slideIn = listOf(
       MediaReviewAnimatorController.getSlideInAnimator(saveButton)
     )
@@ -448,7 +536,7 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
   private fun computeQualityButtonAnimators(state: MediaSelectionState): List<Animator> {
     val slide = listOf(MediaReviewAnimatorController.getSlideInAnimator(qualityButton))
 
-    return slide + if (state.isTouchEnabled && state.selectedMedia.any { MediaUtil.isImageType(it.mimeType) }) {
+    return slide + if (state.isTouchEnabled && !state.isStory && state.selectedMedia.any { MediaUtil.isImageType(it.mimeType) }) {
       listOf(MediaReviewAnimatorController.getFadeInAnimator(qualityButton))
     } else {
       listOf(MediaReviewAnimatorController.getFadeOutAnimator(qualityButton))
@@ -490,5 +578,10 @@ class MediaReviewFragment : Fragment(R.layout.v2_media_review_fragment) {
     fun onSendError(error: Throwable)
     fun onNoMediaSelected()
     fun onPopFromReview()
+  }
+
+  override fun onScheduleSend(scheduledTime: Long) {
+    scheduledSendTime = scheduledTime
+    sendButton.performClick()
   }
 }

@@ -5,6 +5,7 @@ import android.media.MediaDataSource;
 import android.net.Uri;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
 import com.google.android.exoplayer2.util.MimeTypes;
@@ -19,10 +20,10 @@ import org.thoughtcrime.securesms.crypto.AttachmentSecret;
 import org.thoughtcrime.securesms.crypto.AttachmentSecretProvider;
 import org.thoughtcrime.securesms.crypto.ModernDecryptingPartInputStream;
 import org.thoughtcrime.securesms.crypto.ModernEncryptingPartOutputStream;
-import org.thoughtcrime.securesms.database.AttachmentDatabase;
+import org.thoughtcrime.securesms.database.AttachmentTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.events.PartProgressEvent;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.mms.DecryptableStreamUriLoader;
@@ -30,7 +31,6 @@ import org.thoughtcrime.securesms.mms.MediaConstraints;
 import org.thoughtcrime.securesms.mms.MediaStream;
 import org.thoughtcrime.securesms.mms.MmsException;
 import org.thoughtcrime.securesms.mms.SentMediaQuality;
-import org.thoughtcrime.securesms.service.GenericForegroundService;
 import org.thoughtcrime.securesms.service.NotificationController;
 import org.thoughtcrime.securesms.transport.UndeliverableMessageException;
 import org.thoughtcrime.securesms.util.BitmapDecodingException;
@@ -107,12 +107,12 @@ public final class AttachmentCompressionJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putLong(KEY_ROW_ID, attachmentId.getRowId())
-                             .putLong(KEY_UNIQUE_ID, attachmentId.getUniqueId())
-                             .putBoolean(KEY_MMS, mms)
-                             .putInt(KEY_MMS_SUBSCRIPTION_ID, mmsSubscriptionId)
-                             .build();
+  public @Nullable byte [] serialize() {
+    return new JsonJobData.Builder().putLong(KEY_ROW_ID, attachmentId.getRowId())
+                                    .putLong(KEY_UNIQUE_ID, attachmentId.getUniqueId())
+                                    .putBoolean(KEY_MMS, mms)
+                                    .putInt(KEY_MMS_SUBSCRIPTION_ID, mmsSubscriptionId)
+                                    .serialize();
   }
 
   @Override
@@ -129,7 +129,7 @@ public final class AttachmentCompressionJob extends BaseJob {
   public void onRun() throws Exception {
     Log.d(TAG, "Running for: " + attachmentId);
 
-    AttachmentDatabase database           = SignalDatabase.attachments();
+    AttachmentTable    database           = SignalDatabase.attachments();
     DatabaseAttachment databaseAttachment = database.getAttachment(attachmentId);
 
     if (databaseAttachment == null) {
@@ -155,7 +155,7 @@ public final class AttachmentCompressionJob extends BaseJob {
     return exception instanceof IOException;
   }
 
-  private void compress(@NonNull AttachmentDatabase attachmentDatabase,
+  private void compress(@NonNull AttachmentTable attachmentDatabase,
                         @NonNull MediaConstraints constraints,
                         @NonNull DatabaseAttachment attachment)
       throws UndeliverableMessageException
@@ -171,8 +171,9 @@ public final class AttachmentCompressionJob extends BaseJob {
         }
       } else if (constraints.canResize(attachment)) {
         Log.i(TAG, "Compressing image.");
-        MediaStream converted = compressImage(context, attachment, constraints);
-        attachmentDatabase.updateAttachmentData(attachment, converted, false);
+        try (MediaStream converted = compressImage(context, attachment, constraints)) {
+          attachmentDatabase.updateAttachmentData(attachment, converted, false);
+        }
         attachmentDatabase.markAttachmentAsTransformed(attachmentId);
       } else if (constraints.isSatisfied(context, attachment)) {
         Log.i(TAG, "Not compressing.");
@@ -186,14 +187,14 @@ public final class AttachmentCompressionJob extends BaseJob {
   }
 
   private static @NonNull DatabaseAttachment transcodeVideoIfNeededToDatabase(@NonNull Context context,
-                                                                              @NonNull AttachmentDatabase attachmentDatabase,
+                                                                              @NonNull AttachmentTable attachmentDatabase,
                                                                               @NonNull DatabaseAttachment attachment,
                                                                               @NonNull MediaConstraints constraints,
                                                                               @NonNull EventBus eventBus,
                                                                               @NonNull TranscoderCancelationSignal cancelationSignal)
       throws UndeliverableMessageException
   {
-    AttachmentDatabase.TransformProperties transformProperties = attachment.getTransformProperties();
+    AttachmentTable.TransformProperties transformProperties = attachment.getTransformProperties();
 
     boolean allowSkipOnFailure = false;
 
@@ -204,7 +205,7 @@ public final class AttachmentCompressionJob extends BaseJob {
       return attachment;
     }
 
-    try (NotificationController notification = GenericForegroundService.startForegroundTask(context, context.getString(R.string.AttachmentUploadJob_compressing_video_start))) {
+    try (NotificationController notification = ForegroundServiceUtil.startGenericTaskWhenCapable(context, context.getString(R.string.AttachmentUploadJob_compressing_video_start))) {
 
       notification.setIndeterminateProgress();
 
@@ -240,8 +241,9 @@ public final class AttachmentCompressionJob extends BaseJob {
                 }, outputStream, cancelationSignal);
               }
 
-              MediaStream mediaStream = new MediaStream(ModernDecryptingPartInputStream.createFor(attachmentSecret, file, 0), MimeTypes.VIDEO_MP4, 0, 0);
-              attachmentDatabase.updateAttachmentData(attachment, mediaStream, transformProperties.isVideoEdited());
+              try (MediaStream mediaStream = new MediaStream(ModernDecryptingPartInputStream.createFor(attachmentSecret, file, 0), MimeTypes.VIDEO_MP4, 0, 0)) {
+                attachmentDatabase.updateAttachmentData(attachment, mediaStream, true);
+              }
             } finally {
               if (!file.delete()) {
                 Log.w(TAG, "Failed to delete temp file");
@@ -259,15 +261,15 @@ public final class AttachmentCompressionJob extends BaseJob {
             if (transcoder.isTranscodeRequired()) {
               Log.i(TAG, "Compressing with android in-memory muxer");
 
-              MediaStream mediaStream = transcoder.transcode(percent -> {
+              try (MediaStream mediaStream = transcoder.transcode(percent -> {
                 notification.setProgress(100, percent);
                 eventBus.postSticky(new PartProgressEvent(attachment,
                                                           PartProgressEvent.Type.COMPRESSION,
                                                           100,
                                                           percent));
-              }, cancelationSignal);
-
-              attachmentDatabase.updateAttachmentData(attachment, mediaStream, transformProperties.isVideoEdited());
+              }, cancelationSignal)) {
+                attachmentDatabase.updateAttachmentData(attachment, mediaStream, true);
+              }
 
               attachmentDatabase.markAttachmentAsTransformed(attachment.getAttachmentId());
 
@@ -288,7 +290,7 @@ public final class AttachmentCompressionJob extends BaseJob {
           throw new UndeliverableMessageException("Failed to transcode and cannot skip due to editing", e);
         }
       }
-    } catch (IOException | MmsException e) {
+    } catch (UnableToStartException | IOException | MmsException e) {
       throw new UndeliverableMessageException("Failed to transcode", e);
     }
     return attachment;
@@ -340,7 +342,9 @@ public final class AttachmentCompressionJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<AttachmentCompressionJob> {
     @Override
-    public @NonNull AttachmentCompressionJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull AttachmentCompressionJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       return new AttachmentCompressionJob(parameters,
                                           new AttachmentId(data.getLong(KEY_ROW_ID), data.getLong(KEY_UNIQUE_ID)),
                                           data.getBoolean(KEY_MMS),

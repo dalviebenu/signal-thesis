@@ -2,11 +2,12 @@ package org.thoughtcrime.securesms.jobs;
 
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.net.NotPushRegisteredException;
@@ -76,10 +77,10 @@ public class MultiDeviceMessageRequestResponseJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_THREAD_RECIPIENT, threadRecipient.serialize())
-                             .putInt(KEY_TYPE, type.serialize())
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_THREAD_RECIPIENT, threadRecipient.serialize())
+                                    .putInt(KEY_TYPE, type.serialize())
+                                    .serialize();
   }
 
   @Override
@@ -101,8 +102,8 @@ public class MultiDeviceMessageRequestResponseJob extends BaseJob {
     SignalServiceMessageSender messageSender = ApplicationDependencies.getSignalServiceMessageSender();
     Recipient                  recipient     = Recipient.resolved(threadRecipient);
 
-    if (!recipient.hasServiceId()) {
-      Log.i(TAG, "Queued for recipient without ServiceId");
+    if (!recipient.isGroup() && !recipient.hasServiceId()) {
+      Log.i(TAG, "Queued for non-group recipient without ServiceId");
       return;
     }
 
@@ -111,7 +112,7 @@ public class MultiDeviceMessageRequestResponseJob extends BaseJob {
     if (recipient.isGroup()) {
       response = MessageRequestResponseMessage.forGroup(recipient.getGroupId().get().getDecodedId(), localToRemoteType(type));
     } else if (recipient.isMaybeRegistered()) {
-      response = MessageRequestResponseMessage.forIndividual(RecipientUtil.toSignalServiceAddress(context, recipient), localToRemoteType(type));
+      response = MessageRequestResponseMessage.forIndividual(RecipientUtil.getOrFetchServiceId(context, recipient), localToRemoteType(type));
     } else {
       response = null;
     }
@@ -174,8 +175,9 @@ public class MultiDeviceMessageRequestResponseJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<MultiDeviceMessageRequestResponseJob> {
     @Override
-    public @NonNull
-    MultiDeviceMessageRequestResponseJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull MultiDeviceMessageRequestResponseJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       RecipientId threadRecipient = RecipientId.from(data.getString(KEY_THREAD_RECIPIENT));
       Type        type            = Type.deserialize(data.getInt(KEY_TYPE));
 

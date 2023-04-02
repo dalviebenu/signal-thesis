@@ -10,11 +10,12 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
 import androidx.navigation.Navigation;
 
+import org.signal.core.util.concurrent.SimpleTask;
 import org.thoughtcrime.securesms.ContactSelectionListFragment;
 import org.thoughtcrime.securesms.LoggingFragment;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.components.ContactFilterView;
-import org.thoughtcrime.securesms.contacts.ContactsCursorLoader.DisplayMode;
+import org.thoughtcrime.securesms.contacts.ContactSelectionDisplayMode;
 import org.thoughtcrime.securesms.conversation.ConversationIntents;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.payments.CanNotSendPaymentDialog;
@@ -22,8 +23,8 @@ import org.thoughtcrime.securesms.payments.preferences.model.PayeeParcelable;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.util.ViewUtil;
-import org.signal.core.util.concurrent.SimpleTask;
 import org.thoughtcrime.securesms.util.navigation.SafeNavigation;
+import org.whispersystems.signalservice.api.util.ExpiringProfileCredentialUtil;
 
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -48,7 +49,7 @@ public class PaymentRecipientSelectionFragment extends LoggingFragment implement
 
     Bundle arguments = new Bundle();
     arguments.putBoolean(ContactSelectionListFragment.REFRESHABLE, false);
-    arguments.putInt(ContactSelectionListFragment.DISPLAY_MODE, DisplayMode.FLAG_PUSH | DisplayMode.FLAG_HIDE_NEW);
+    arguments.putInt(ContactSelectionListFragment.DISPLAY_MODE, ContactSelectionDisplayMode.FLAG_PUSH | ContactSelectionDisplayMode.FLAG_HIDE_NEW);
     arguments.putBoolean(ContactSelectionListFragment.CAN_SELECT_SELF, false);
 
     Fragment child = getChildFragmentManager().findFragmentById(R.id.contact_selection_list_fragment_holder);
@@ -70,7 +71,7 @@ public class PaymentRecipientSelectionFragment extends LoggingFragment implement
   }
 
   @Override
-  public void onBeforeContactSelected(@NonNull Optional<RecipientId> recipientId, @Nullable String number, @NonNull Consumer<Boolean> callback) {
+  public void onBeforeContactSelected(boolean isFromUnknownSearchKey, @NonNull Optional<RecipientId> recipientId, @Nullable String number, @NonNull Consumer<Boolean> callback) {
     if (recipientId.isPresent()) {
       SimpleTask.run(getViewLifecycleOwner().getLifecycle(),
                      () -> Recipient.resolved(recipientId.get()),
@@ -81,7 +82,7 @@ public class PaymentRecipientSelectionFragment extends LoggingFragment implement
   }
 
   @Override
-  public void onContactDeselected(@NonNull Optional<RecipientId> recipientId, @Nullable String number) { }
+  public void onContactDeselected(@NonNull Optional<RecipientId> recipientId, @Nullable String number) {}
 
   @Override
   public void onSelectionChanged() {
@@ -98,9 +99,9 @@ public class PaymentRecipientSelectionFragment extends LoggingFragment implement
   }
 
   private void createPaymentOrShowWarningDialog(@NonNull Recipient recipient) {
-    if (recipient.hasProfileKeyCredential()) {
+    if (ExpiringProfileCredentialUtil.isValid(recipient.getExpiringProfileKeyCredential())) {
       createPayment(recipient.getId());
-      } else {
+    } else {
       showWarningDialog(recipient.getId());
     }
   }

@@ -8,10 +8,8 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.NavHostFragment
 import androidx.recyclerview.widget.RecyclerView
-import com.dd.CircularProgressButton
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.DSLConfiguration
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.DSLSettingsText
 import org.thoughtcrime.securesms.components.settings.configure
@@ -19,9 +17,11 @@ import org.thoughtcrime.securesms.groups.ui.GroupChangeFailureReason
 import org.thoughtcrime.securesms.groups.ui.GroupErrors
 import org.thoughtcrime.securesms.util.ExpirationUtil
 import org.thoughtcrime.securesms.util.ViewUtil
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.livedata.ProcessState
 import org.thoughtcrime.securesms.util.livedata.distinctUntilChanged
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
+import org.thoughtcrime.securesms.util.views.CircularProgressMaterialButton
 
 /**
  * Depending on the arguments, can be used to set the universal expire timer, set expire timer
@@ -32,7 +32,7 @@ class ExpireTimerSettingsFragment : DSLSettingsFragment(
   layoutId = R.layout.expire_timer_settings_fragment
 ) {
 
-  private lateinit var save: CircularProgressButton
+  private lateinit var save: CircularProgressMaterialButton
   private lateinit var viewModel: ExpireTimerSettingsViewModel
 
   override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -48,7 +48,7 @@ class ExpireTimerSettingsFragment : DSLSettingsFragment(
     recycler.clipToPadding = false
   }
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     val provider = ViewModelProvider(
       NavHostFragment.findNavController(this).getViewModelStoreOwner(R.id.app_settings_expire_timer),
       ExpireTimerSettingsViewModel.Factory(requireContext(), arguments.toConfig())
@@ -62,9 +62,7 @@ class ExpireTimerSettingsFragment : DSLSettingsFragment(
     viewModel.state.distinctUntilChanged(ExpireTimerSettingsState::saveState).observe(viewLifecycleOwner) { state ->
       when (val saveState: ProcessState<Int> = state.saveState) {
         is ProcessState.Working -> {
-          save.isClickable = false
-          save.isIndeterminateProgressMode = true
-          save.progress = 50
+          save.setSpinning()
         }
         is ProcessState.Success -> {
           if (state.isGroupCreate) {
@@ -79,9 +77,7 @@ class ExpireTimerSettingsFragment : DSLSettingsFragment(
           viewModel.resetError()
         }
         else -> {
-          save.isClickable = true
-          save.isIndeterminateProgressMode = false
-          save.progress = 0
+          save.cancelSpinning()
         }
       }
     }

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.Window
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.Toolbar
 import io.reactivex.rxjava3.subjects.PublishSubject
@@ -13,16 +14,23 @@ import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.HidingLinearLayout
 import org.thoughtcrime.securesms.components.reminder.ReminderView
 import org.thoughtcrime.securesms.components.settings.app.subscription.DonationPaymentComponent
-import org.thoughtcrime.securesms.components.settings.app.subscription.DonationPaymentRepository
+import org.thoughtcrime.securesms.components.settings.app.subscription.StripeRepository
 import org.thoughtcrime.securesms.recipients.Recipient
+import org.thoughtcrime.securesms.util.Debouncer
 import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme
 import org.thoughtcrime.securesms.util.DynamicTheme
-import org.thoughtcrime.securesms.util.concurrent.ListenableFuture
 import org.thoughtcrime.securesms.util.views.Stub
+import java.util.concurrent.TimeUnit
 
 open class ConversationActivity : PassphraseRequiredActivity(), ConversationParentFragment.Callback, DonationPaymentComponent {
 
+  companion object {
+    private const val STATE_WATERMARK = "share_data_watermark"
+  }
+
+  private val transitionDebouncer: Debouncer = Debouncer(150, TimeUnit.MILLISECONDS)
   private lateinit var fragment: ConversationParentFragment
+  private var shareDataTimestamp: Long = -1L
 
   private val dynamicTheme: DynamicTheme = DynamicNoActionBarTheme()
   override fun onPreCreate() {
@@ -30,14 +38,54 @@ open class ConversationActivity : PassphraseRequiredActivity(), ConversationPare
   }
 
   override fun onCreate(savedInstanceState: Bundle?, ready: Boolean) {
+    supportPostponeEnterTransition()
+    transitionDebouncer.publish { supportStartPostponedEnterTransition() }
+    window.requestFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)
+
+    if (savedInstanceState != null) {
+      shareDataTimestamp = savedInstanceState.getLong(STATE_WATERMARK, -1L)
+    } else if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) {
+      shareDataTimestamp = System.currentTimeMillis()
+    }
     setContentView(R.layout.conversation_parent_fragment_container)
 
-    fragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as ConversationParentFragment
+    if (savedInstanceState == null) {
+      replaceFragment(intent!!)
+    } else {
+      fragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as ConversationParentFragment
+    }
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    transitionDebouncer.clear()
+  }
+
+  override fun onSaveInstanceState(outState: Bundle) {
+    super.onSaveInstanceState(outState)
+    outState.putLong(STATE_WATERMARK, shareDataTimestamp)
   }
 
   override fun onNewIntent(intent: Intent?) {
     super.onNewIntent(intent)
-    fragment.onNewIntent(intent)
+
+    setIntent(intent)
+    replaceFragment(intent!!)
+  }
+
+  @Suppress("DEPRECATION")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    googlePayResultPublisher.onNext(DonationPaymentComponent.GooglePayResult(requestCode, resultCode, data))
+  }
+
+  private fun replaceFragment(intent: Intent) {
+    fragment = ConversationParentFragment.create(intent)
+    supportFragmentManager
+      .beginTransaction()
+      .replace(R.id.fragment_container, fragment)
+      .disallowAddToBackStack()
+      .commitNowAllowingStateLoss()
   }
 
   override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
@@ -49,13 +97,17 @@ open class ConversationActivity : PassphraseRequiredActivity(), ConversationPare
     dynamicTheme.onResume(this)
   }
 
+  override fun getShareDataTimestamp(): Long {
+    return shareDataTimestamp
+  }
+
+  override fun setShareDataTimestamp(timestamp: Long) {
+    shareDataTimestamp = timestamp
+  }
+
   override fun onInitializeToolbar(toolbar: Toolbar) {
     toolbar.navigationIcon = AppCompatResources.getDrawable(this, R.drawable.ic_arrow_left_24)
     toolbar.setNavigationOnClickListener { finish() }
-  }
-
-  fun saveDraft(): ListenableFuture<Long> {
-    return fragment.saveDraft()
   }
 
   fun getRecipient(): Recipient {
@@ -78,6 +130,6 @@ open class ConversationActivity : PassphraseRequiredActivity(), ConversationPare
     return fragment.reminderView
   }
 
-  override val donationPaymentRepository: DonationPaymentRepository by lazy { DonationPaymentRepository(this) }
+  override val stripeRepository: StripeRepository by lazy { StripeRepository(this) }
   override val googlePayResultPublisher: Subject<DonationPaymentComponent.GooglePayResult> = PublishSubject.create()
 }

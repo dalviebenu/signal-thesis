@@ -17,13 +17,14 @@
 package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.concurrent.SignalExecutors;
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.database.SignalDatabase;
-import org.thoughtcrime.securesms.database.ThreadDatabase;
+import org.thoughtcrime.securesms.database.ThreadTable;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.keyvalue.KeepMessagesDuration;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
@@ -57,8 +58,8 @@ public class TrimThreadJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putLong(KEY_THREAD_ID, threadId).build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putLong(KEY_THREAD_ID, threadId).serialize();
   }
 
   @Override
@@ -71,10 +72,10 @@ public class TrimThreadJob extends BaseJob {
     KeepMessagesDuration keepMessagesDuration = SignalStore.settings().getKeepMessagesDuration();
 
     int trimLength = SignalStore.settings().isTrimByLengthEnabled() ? SignalStore.settings().getThreadTrimLength()
-                                                                    : ThreadDatabase.NO_TRIM_MESSAGE_COUNT_SET;
+                                                                    : ThreadTable.NO_TRIM_MESSAGE_COUNT_SET;
 
     long trimBeforeDate = keepMessagesDuration != KeepMessagesDuration.FOREVER ? System.currentTimeMillis() - keepMessagesDuration.getDuration()
-                                                                               : ThreadDatabase.NO_TRIM_BEFORE_DATE_SET;
+                                                                               : ThreadTable.NO_TRIM_BEFORE_DATE_SET;
 
     SignalDatabase.threads().trimThread(threadId, trimLength, trimBeforeDate);
   }
@@ -91,7 +92,8 @@ public class TrimThreadJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<TrimThreadJob> {
     @Override
-    public @NonNull TrimThreadJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull TrimThreadJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
       return new TrimThreadJob(parameters, data.getLong(KEY_THREAD_ID));
     }
   }

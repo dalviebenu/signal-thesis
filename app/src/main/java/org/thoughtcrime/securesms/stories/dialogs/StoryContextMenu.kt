@@ -10,8 +10,10 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.core.app.ShareCompat
 import androidx.fragment.app.Fragment
+import com.bumptech.glide.load.Options
 import io.reactivex.rxjava3.core.Single
 import org.signal.core.util.DimensionUnit
+import org.signal.core.util.concurrent.SimpleTask
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.attachments.Attachment
@@ -19,12 +21,18 @@ import org.thoughtcrime.securesms.components.menu.ActionItem
 import org.thoughtcrime.securesms.components.menu.SignalContextMenu
 import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord
 import org.thoughtcrime.securesms.database.model.MessageRecord
+import org.thoughtcrime.securesms.database.model.databaseprotos.StoryTextPost
+import org.thoughtcrime.securesms.providers.BlobProvider
+import org.thoughtcrime.securesms.stories.StoryTextPostModel
 import org.thoughtcrime.securesms.stories.landing.StoriesLandingItem
-import org.thoughtcrime.securesms.stories.my.MyStoriesItem
 import org.thoughtcrime.securesms.stories.viewer.page.StoryPost
 import org.thoughtcrime.securesms.stories.viewer.page.StoryViewerPageState
+import org.thoughtcrime.securesms.util.Base64
+import org.thoughtcrime.securesms.util.BitmapUtil
 import org.thoughtcrime.securesms.util.DeleteDialog
+import org.thoughtcrime.securesms.util.MediaUtil
 import org.thoughtcrime.securesms.util.SaveAttachmentTask
+import java.io.ByteArrayInputStream
 
 object StoryContextMenu {
 
@@ -44,6 +52,29 @@ object StoryContextMenu {
     val mediaMessageRecord = messageRecord as? MediaMmsMessageRecord
     val uri: Uri? = mediaMessageRecord?.slideDeck?.firstSlide?.uri
     val contentType: String? = mediaMessageRecord?.slideDeck?.firstSlide?.contentType
+
+    if (mediaMessageRecord?.storyType?.isTextStory == true) {
+      SimpleTask.run({
+        val model = StoryTextPostModel.parseFrom(messageRecord)
+        val decoder = StoryTextPostModel.Decoder()
+        val bitmap = decoder.decode(model, 1080, 1920, Options()).get()
+        val jpeg: ByteArrayInputStream = BitmapUtil.toCompressedJpeg(bitmap)
+
+        bitmap.recycle()
+
+        SaveAttachmentTask.Attachment(
+          BlobProvider.getInstance().forData(jpeg.readBytes()).createForSingleUseInMemory(),
+          MediaUtil.IMAGE_JPEG,
+          mediaMessageRecord.dateSent,
+          null
+        )
+      }, { saveAttachment ->
+        SaveAttachmentTask(context)
+          .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, saveAttachment)
+      })
+      return
+    }
+
     if (uri == null || contentType == null) {
       Log.w(TAG, "Unable to save story media uri: $uri contentType: $contentType")
       Toast.makeText(context, R.string.MyStories__unable_to_save, Toast.LENGTH_SHORT).show()
@@ -62,12 +93,23 @@ object StoryContextMenu {
   }
 
   fun share(fragment: Fragment, messageRecord: MediaMmsMessageRecord) {
-    val attachment: Attachment = messageRecord.slideDeck.firstSlide!!.asAttachment()
-    val intent: Intent = ShareCompat.IntentBuilder(fragment.requireContext())
-      .setStream(attachment.publicUri)
-      .setType(attachment.contentType)
-      .createChooserIntent()
-      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val intent = if (messageRecord.storyType.isTextStory) {
+      val textStoryBody = StoryTextPost.parseFrom(Base64.decode(messageRecord.body)).body
+      val linkUrl = messageRecord.linkPreviews.firstOrNull()?.url ?: ""
+      val shareText = "$textStoryBody $linkUrl".trim()
+
+      ShareCompat.IntentBuilder(fragment.requireContext())
+        .setText(shareText)
+        .createChooserIntent()
+    } else {
+      val attachment: Attachment = messageRecord.slideDeck.firstSlide!!.asAttachment()
+
+      ShareCompat.IntentBuilder(fragment.requireContext())
+        .setStream(attachment.publicUri)
+        .setType(attachment.contentType)
+        .createChooserIntent()
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
 
     try {
       fragment.startActivity(intent)
@@ -80,6 +122,7 @@ object StoryContextMenu {
   fun show(
     context: Context,
     anchorView: View,
+    previewView: View,
     model: StoriesLandingItem.Model,
     onDismiss: () -> Unit
   ) {
@@ -88,6 +131,7 @@ object StoryContextMenu {
       anchorView = anchorView,
       isFromSelf = model.data.primaryStory.messageRecord.isOutgoing,
       isToGroup = model.data.storyRecipient.isGroup,
+      isFromReleaseChannel = model.data.storyRecipient.isReleaseNotes,
       canHide = !model.data.isHidden,
       callbacks = object : Callbacks {
         override fun onHide() = model.onHideStory(model)
@@ -98,6 +142,7 @@ object StoryContextMenu {
         override fun onDismissed() = onDismiss()
         override fun onDelete() = model.onDeleteStory(model)
         override fun onSave() = model.onSave(model)
+        override fun onInfo() = model.onInfo(model, previewView)
       }
     )
   }
@@ -112,14 +157,17 @@ object StoryContextMenu {
     onGoToChat: (StoryPost) -> Unit,
     onSave: (StoryPost) -> Unit,
     onDelete: (StoryPost) -> Unit,
+    onInfo: (StoryPost) -> Unit,
     onDismiss: () -> Unit
   ) {
-    val selectedStory: StoryPost = storyViewerPageState.posts[storyViewerPageState.selectedPostIndex]
+    val selectedStory: StoryPost = storyViewerPageState.posts.getOrNull(storyViewerPageState.selectedPostIndex) ?: return
+
     show(
       context = context,
       anchorView = anchorView,
       isFromSelf = selectedStory.sender.isSelf,
       isToGroup = selectedStory.group != null,
+      isFromReleaseChannel = selectedStory.sender.isReleaseNotes,
       canHide = true,
       callbacks = object : Callbacks {
         override fun onHide() = onHide(selectedStory)
@@ -130,31 +178,7 @@ object StoryContextMenu {
         override fun onDismissed() = onDismiss()
         override fun onSave() = onSave(selectedStory)
         override fun onDelete() = onDelete(selectedStory)
-      }
-    )
-  }
-
-  fun show(
-    context: Context,
-    anchorView: View,
-    myStoriesItemModel: MyStoriesItem.Model,
-    onDismiss: () -> Unit
-  ) {
-    show(
-      context = context,
-      anchorView = anchorView,
-      isFromSelf = true,
-      isToGroup = false,
-      canHide = false,
-      callbacks = object : Callbacks {
-        override fun onHide() = throw NotImplementedError()
-        override fun onUnhide() = throw NotImplementedError()
-        override fun onForward() = myStoriesItemModel.onForwardClick(myStoriesItemModel)
-        override fun onShare() = myStoriesItemModel.onShareClick(myStoriesItemModel)
-        override fun onGoToChat() = throw NotImplementedError()
-        override fun onDismissed() = onDismiss()
-        override fun onSave() = myStoriesItemModel.onSaveClick(myStoriesItemModel)
-        override fun onDelete() = myStoriesItemModel.onDeleteClick(myStoriesItemModel)
+        override fun onInfo() = onInfo(selectedStory)
       }
     )
   }
@@ -164,6 +188,7 @@ object StoryContextMenu {
     anchorView: View,
     isFromSelf: Boolean,
     isToGroup: Boolean,
+    isFromReleaseChannel: Boolean,
     rootView: ViewGroup = anchorView.rootView as ViewGroup,
     canHide: Boolean,
     callbacks: Callbacks
@@ -172,13 +197,13 @@ object StoryContextMenu {
       if (!isFromSelf || isToGroup) {
         if (canHide) {
           add(
-            ActionItem(R.drawable.ic_circle_x_24_tinted, context.getString(R.string.StoriesLandingItem__hide_story)) {
+            ActionItem(R.drawable.symbol_x_circle_24, context.getString(R.string.StoriesLandingItem__hide_story)) {
               callbacks.onHide()
             }
           )
         } else {
           add(
-            ActionItem(R.drawable.ic_check_circle_24, context.getString(R.string.StoriesLandingItem__unhide_story)) {
+            ActionItem(R.drawable.symbol_check_circle_24, context.getString(R.string.StoriesLandingItem__unhide_story)) {
               callbacks.onUnhide()
             }
           )
@@ -187,34 +212,40 @@ object StoryContextMenu {
 
       if (isFromSelf) {
         add(
-          ActionItem(R.drawable.ic_forward_24_tinted, context.getString(R.string.StoriesLandingItem__forward)) {
+          ActionItem(R.drawable.symbol_forward_24, context.getString(R.string.StoriesLandingItem__forward)) {
             callbacks.onForward()
           }
         )
         add(
-          ActionItem(R.drawable.ic_share_24_tinted, context.getString(R.string.StoriesLandingItem__share)) {
+          ActionItem(R.drawable.symbol_share_android_24, context.getString(R.string.StoriesLandingItem__share)) {
             callbacks.onShare()
           }
         )
         add(
-          ActionItem(R.drawable.ic_delete_24_tinted, context.getString(R.string.delete)) {
+          ActionItem(R.drawable.symbol_trash_24, context.getString(R.string.delete)) {
             callbacks.onDelete()
           }
         )
         add(
-          ActionItem(R.drawable.ic_download_24_tinted, context.getString(R.string.save)) {
+          ActionItem(R.drawable.symbol_save_android_24, context.getString(R.string.save)) {
             callbacks.onSave()
           }
         )
       }
 
-      if (isToGroup || !isFromSelf) {
+      if ((isToGroup || !isFromSelf) && !isFromReleaseChannel) {
         add(
-          ActionItem(R.drawable.ic_open_24_tinted, context.getString(R.string.StoriesLandingItem__go_to_chat)) {
+          ActionItem(R.drawable.symbol_open_20, context.getString(R.string.StoriesLandingItem__go_to_chat)) {
             callbacks.onGoToChat()
           }
         )
       }
+
+      add(
+        ActionItem(R.drawable.symbol_info_24, context.getString(R.string.StoriesLandingItem__info)) {
+          callbacks.onInfo()
+        }
+      )
     }
 
     SignalContextMenu.Builder(anchorView, rootView)
@@ -236,5 +267,6 @@ object StoryContextMenu {
     fun onDismissed()
     fun onSave()
     fun onDelete()
+    fun onInfo()
   }
 }

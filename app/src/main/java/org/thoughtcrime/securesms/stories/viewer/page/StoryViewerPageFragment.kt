@@ -1,22 +1,27 @@
 package org.thoughtcrime.securesms.stories.viewer.page
 
+import android.animation.Animator
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
-import android.net.Uri
+import android.media.AudioManager
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.method.ScrollingMovementMethod
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.animation.Interpolator
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.TextView
-import androidx.cardview.widget.CardView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
+import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.animation.PathInterpolatorCompat
 import androidx.core.view.doOnNextLayout
@@ -24,44 +29,60 @@ import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.progressindicator.CircularProgressIndicatorSpec
+import com.google.android.material.progressindicator.IndeterminateDrawable
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.core.Observable
 import org.signal.core.util.DimensionUnit
+import org.signal.core.util.dp
+import org.signal.core.util.getParcelableCompat
+import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.R
+import org.thoughtcrime.securesms.animation.AnimationCompleteListener
 import org.thoughtcrime.securesms.components.AvatarImageView
 import org.thoughtcrime.securesms.components.segmentedprogressbar.SegmentedProgressBar
 import org.thoughtcrime.securesms.components.segmentedprogressbar.SegmentedProgressBarListener
 import org.thoughtcrime.securesms.contacts.avatars.FallbackContactPhoto
 import org.thoughtcrime.securesms.contacts.avatars.FallbackPhoto20dp
 import org.thoughtcrime.securesms.contacts.avatars.GeneratedContactPhoto
+import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
 import org.thoughtcrime.securesms.conversation.ConversationIntents
+import org.thoughtcrime.securesms.conversation.MessageStyler
 import org.thoughtcrime.securesms.conversation.colors.AvatarColor
 import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardBottomSheet
 import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardFragment
 import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardFragmentArgs
-import org.thoughtcrime.securesms.database.AttachmentDatabase
+import org.thoughtcrime.securesms.database.AttachmentTable
 import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord
-import org.thoughtcrime.securesms.database.model.MmsMessageRecord
+import org.thoughtcrime.securesms.database.model.databaseprotos.BodyRangeList
 import org.thoughtcrime.securesms.mediapreview.MediaPreviewFragment
 import org.thoughtcrime.securesms.mediapreview.VideoControlsDelegate
 import org.thoughtcrime.securesms.mms.GlideApp
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.recipients.RecipientId
+import org.thoughtcrime.securesms.recipients.ui.bottomsheet.RecipientBottomSheetDialogFragment
+import org.thoughtcrime.securesms.safety.SafetyNumberBottomSheet
 import org.thoughtcrime.securesms.stories.StorySlateView
+import org.thoughtcrime.securesms.stories.StoryVolumeOverlayView
 import org.thoughtcrime.securesms.stories.dialogs.StoryContextMenu
-import org.thoughtcrime.securesms.stories.viewer.StoryViewerState
+import org.thoughtcrime.securesms.stories.dialogs.StoryDialogs
+import org.thoughtcrime.securesms.stories.viewer.AddToGroupStoryDelegate
 import org.thoughtcrime.securesms.stories.viewer.StoryViewerViewModel
-import org.thoughtcrime.securesms.stories.viewer.reply.StoriesSharedElementCrossFaderView
+import org.thoughtcrime.securesms.stories.viewer.StoryVolumeViewModel
+import org.thoughtcrime.securesms.stories.viewer.info.StoryInfoBottomSheetDialogFragment
+import org.thoughtcrime.securesms.stories.viewer.post.StoryPostFragment
 import org.thoughtcrime.securesms.stories.viewer.reply.direct.StoryDirectReplyDialogFragment
 import org.thoughtcrime.securesms.stories.viewer.reply.group.StoryGroupReplyBottomSheetDialogFragment
 import org.thoughtcrime.securesms.stories.viewer.reply.reaction.OnReactionSentView
 import org.thoughtcrime.securesms.stories.viewer.reply.tabs.StoryViewsAndRepliesDialogFragment
-import org.thoughtcrime.securesms.stories.viewer.text.StoryTextPostPreviewFragment
 import org.thoughtcrime.securesms.stories.viewer.views.StoryViewsBottomSheetDialogFragment
 import org.thoughtcrime.securesms.util.AvatarUtil
 import org.thoughtcrime.securesms.util.BottomSheetUtil
 import org.thoughtcrime.securesms.util.DateUtils
+import org.thoughtcrime.securesms.util.Debouncer
 import org.thoughtcrime.securesms.util.LifecycleDisposable
+import org.thoughtcrime.securesms.util.ServiceUtil
 import org.thoughtcrime.securesms.util.ViewUtil
 import org.thoughtcrime.securesms.util.fragments.requireListener
 import org.thoughtcrime.securesms.util.views.TouchInterceptingFrameLayout
@@ -74,28 +95,51 @@ import kotlin.math.min
 
 class StoryViewerPageFragment :
   Fragment(R.layout.stories_viewer_fragment_page),
-  MediaPreviewFragment.Events,
+  StoryPostFragment.Callback,
   MultiselectForwardBottomSheet.Callback,
   StorySlateView.Callback,
-  StoryTextPostPreviewFragment.Callback,
-  StoriesSharedElementCrossFaderView.Callback {
+  StoryInfoBottomSheetDialogFragment.OnInfoSheetDismissedListener,
+  SafetyNumberBottomSheet.Callbacks,
+  RecipientBottomSheetDialogFragment.Callback {
+
+  private val storyVolumeViewModel: StoryVolumeViewModel by viewModels(ownerProducer = { requireActivity() })
 
   private lateinit var progressBar: SegmentedProgressBar
   private lateinit var storySlate: StorySlateView
   private lateinit var viewsAndReplies: MaterialButton
-  private lateinit var storyCrossfader: StoriesSharedElementCrossFaderView
-  private lateinit var blurContainer: ImageView
   private lateinit var storyCaptionContainer: FrameLayout
   private lateinit var storyContentContainer: FrameLayout
+  private lateinit var storyPageContainer: ConstraintLayout
+  private lateinit var sendingBarTextView: TextView
+  private lateinit var sendingBar: View
+  private lateinit var storyNormalBottomGradient: View
+  private lateinit var storyCaptionBottomGradient: View
+  private lateinit var addToGroupStoryButton: MaterialButton
 
   private lateinit var callback: Callback
 
   private lateinit var chrome: List<View>
   private var animatorSet: AnimatorSet? = null
 
+  private var volumeInAnimator: Animator? = null
+  private var volumeOutAnimator: Animator? = null
+  private var volumeDebouncer: Debouncer = Debouncer(3, TimeUnit.SECONDS)
+
+  private val storyViewStateViewModel: StoryViewStateViewModel by viewModels()
+
   private val viewModel: StoryViewerPageViewModel by viewModels(
     factoryProducer = {
-      StoryViewerPageViewModel.Factory(storyRecipientId, initialStoryId, StoryViewerPageRepository(requireContext()))
+      StoryViewerPageViewModel.Factory(
+        storyViewerPageArgs,
+        StoryViewerPageRepository(
+          requireContext(),
+          storyViewStateViewModel.storyViewStateCache
+        ),
+        StoryCache(
+          GlideApp.with(requireActivity()),
+          StoryDisplay.getStorySize(resources)
+        )
+      )
     }
   )
 
@@ -108,21 +152,21 @@ class StoryViewerPageFragment :
   private val lifecycleDisposable = LifecycleDisposable()
   private val timeoutDisposable = LifecycleDisposable()
 
-  private val storyRecipientId: RecipientId
-    get() = requireArguments().getParcelable(ARG_STORY_RECIPIENT_ID)!!
+  private var sendingProgressDrawable: IndeterminateDrawable<CircularProgressIndicatorSpec>? = null
 
-  private val initialStoryId: Long
-    get() = requireArguments().getLong(ARG_STORY_ID, -1L)
-
-  private val isFromNotification: Boolean
-    get() = requireArguments().getBoolean(ARG_IS_FROM_NOTIFICATION, false)
-
-  private val groupReplyStartPosition: Int
-    get() = requireArguments().getInt(ARG_GROUP_REPLY_START_POSITION, -1)
+  private val storyViewerPageArgs: StoryViewerPageArgs by lazy(LazyThreadSafetyMode.NONE) {
+    requireArguments().getParcelableCompat(ARGS, StoryViewerPageArgs::class.java)!!
+  }
 
   @SuppressLint("ClickableViewAccessibility")
   override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
     callback = requireListener()
+
+    if (storyVolumeViewModel.snapshot.isMuted) {
+      videoControlsDelegate.mute()
+    } else {
+      videoControlsDelegate.unmute()
+    }
 
     val closeView: View = view.findViewById(R.id.close)
     val senderAvatar: AvatarImageView = view.findViewById(R.id.sender_avatar)
@@ -132,24 +176,29 @@ class StoryViewerPageFragment :
     val moreButton: View = view.findViewById(R.id.more)
     val distributionList: TextView = view.findViewById(R.id.distribution_list)
     val cardWrapper: TouchInterceptingFrameLayout = view.findViewById(R.id.story_content_card_touch_interceptor)
-    val card: CardView = view.findViewById(R.id.story_content_card)
+    val card: MaterialCardView = view.findViewById(R.id.story_content_card)
     val caption: TextView = view.findViewById(R.id.story_caption)
     val largeCaption: TextView = view.findViewById(R.id.story_large_caption)
     val largeCaptionOverlay: View = view.findViewById(R.id.story_large_caption_overlay)
     val reactionAnimationView: OnReactionSentView = view.findViewById(R.id.on_reaction_sent_view)
     val storyGradientTop: View = view.findViewById(R.id.story_gradient_top)
-    val storyGradientBottom: View = view.findViewById(R.id.story_gradient_bottom)
+    val storyGradientBottom: View = view.findViewById(R.id.story_bottom_gradient_container)
+    val storyVolumeOverlayView: StoryVolumeOverlayView = view.findViewById(R.id.story_volume_overlay)
+    val addToGroupStoryButtonWrapper: View = view.findViewById(R.id.add_wrapper)
 
-    blurContainer = view.findViewById(R.id.story_blur_container)
+    storyNormalBottomGradient = view.findViewById(R.id.story_gradient_bottom)
+    storyCaptionBottomGradient = view.findViewById(R.id.story_caption_gradient)
+    storyPageContainer = view.findViewById(R.id.story_page_container)
     storyContentContainer = view.findViewById(R.id.story_content_container)
     storyCaptionContainer = view.findViewById(R.id.story_caption_container)
     storySlate = view.findViewById(R.id.story_slate)
     progressBar = view.findViewById(R.id.progress)
     viewsAndReplies = view.findViewById(R.id.views_and_replies_bar)
-    storyCrossfader = view.findViewById(R.id.story_content_crossfader)
+    sendingBarTextView = view.findViewById(R.id.sending_text_view)
+    sendingBar = view.findViewById(R.id.sending_bar)
+    addToGroupStoryButton = view.findViewById(R.id.add)
 
     storySlate.callback = this
-    storyCrossfader.callback = this
 
     chrome = listOf(
       closeView,
@@ -162,7 +211,9 @@ class StoryViewerPageFragment :
       viewsAndReplies,
       progressBar,
       storyGradientTop,
-      storyGradientBottom
+      storyGradientBottom,
+      storyCaptionContainer,
+      addToGroupStoryButtonWrapper
     )
 
     senderAvatar.setFallbackPhotoProvider(FallbackPhotoProvider())
@@ -172,35 +223,68 @@ class StoryViewerPageFragment :
       requireActivity().onBackPressed()
     }
 
+    val addToGroupStoryDelegate = AddToGroupStoryDelegate(this)
+    addToGroupStoryButton.setOnClickListener {
+      addToGroupStoryDelegate.addToStory(storyViewerPageArgs.recipientId)
+    }
+
+    val singleTapHandler = SingleTapHandler(
+      cardWrapper,
+      viewModel::goToNextPost,
+      viewModel::goToPreviousPost
+    )
+
     val gestureDetector = GestureDetectorCompat(
       requireContext(),
       StoryGestureListener(
         cardWrapper,
-        viewModel::goToNextPost,
-        viewModel::goToPreviousPost,
+        singleTapHandler,
         this::startReply,
+        requireListener<Callback>()::onContentTranslation,
         sharedViewModel = sharedViewModel
       )
     )
 
-    cardWrapper.setOnInterceptTouchEventListener { storySlate.state == StorySlateView.State.HIDDEN && childFragmentManager.findFragmentById(R.id.story_content_container) !is StoryTextPostPreviewFragment }
+    gestureDetector.setOnDoubleTapListener(null)
+
+    val scaleListener = StoryScaleListener(
+      viewModel,
+      sharedViewModel,
+      card
+    )
+
+    val scaleDetector = ScaleGestureDetector(
+      requireContext(),
+      scaleListener
+    )
+
+    cardWrapper.setOnInterceptTouchEventListener { !storySlate.state.hasClickableContent && viewModel.getPost()?.content?.isText() != true }
     cardWrapper.setOnTouchListener { _, event ->
-      val result = gestureDetector.onTouchEvent(event)
+      scaleDetector.onTouchEvent(event)
+      val result = if (scaleDetector.isInProgress || scaleListener.isPerformingEndAnimation) {
+        true
+      } else {
+        gestureDetector.onTouchEvent(event)
+      }
+
       if (event.actionMasked == MotionEvent.ACTION_DOWN) {
         viewModel.setIsUserTouching(true)
       } else if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
         viewModel.setIsUserTouching(false)
 
         val canCloseFromHorizontalSlide = requireView().translationX > DimensionUnit.DP.toPixels(56f)
-        val canCloseFromVerticalSlide = requireView().translationY > DimensionUnit.DP.toPixels(56f)
+        val canCloseFromVerticalSlide = requireView().translationY > DimensionUnit.DP.toPixels(56f) || requireView().translationY < -DimensionUnit.DP.toPixels(56f)
         if ((canCloseFromHorizontalSlide || canCloseFromVerticalSlide) && event.actionMasked == MotionEvent.ACTION_UP) {
           requireActivity().onBackPressed()
         } else {
+          sharedViewModel.setIsChildScrolling(false)
           requireView().animate()
             .setInterpolator(StoryGestureListener.INTERPOLATOR)
             .setDuration(100)
             .translationX(0f)
             .translationY(0f)
+
+          requireListener<Callback>().onContentTranslation(0f, 0f)
         }
       }
 
@@ -225,8 +309,9 @@ class StoryViewerPageFragment :
       }
 
       override fun onRequestSegmentProgressPercentage(): Float? {
-        val attachmentUri = if (viewModel.hasPost() && viewModel.getPost().content.isVideo()) {
-          viewModel.getPost().content.uri
+        val storyPost = viewModel.getPost() ?: return null
+        val attachmentUri = if (storyPost.content.isVideo()) {
+          storyPost.content.uri
         } else {
           null
         }
@@ -254,10 +339,44 @@ class StoryViewerPageFragment :
       viewModel.setIsUserScrollingParent(isScrolling)
     }
 
+    lifecycleDisposable += sharedViewModel.isChildScrolling.subscribe {
+      viewModel.setIsUserScrollingChild(it)
+    }
+
+    lifecycleDisposable += sharedViewModel.isFirstTimeNavigationShowing.subscribe {
+      viewModel.setIsDisplayingFirstTimeNavigation(it)
+    }
+
+    lifecycleDisposable += storyVolumeViewModel.state.distinctUntilChanged().observeOn(AndroidSchedulers.mainThread()).subscribe { volumeState ->
+      if (volumeState.isMuted) {
+        videoControlsDelegate.mute()
+        return@subscribe
+      }
+
+      if (!viewModel.hasPost() || viewModel.getPost()?.content?.isVideo() != true || volumeState.level < 0) {
+        return@subscribe
+      }
+
+      if (!volumeState.isMuted) {
+        videoControlsDelegate.unmute()
+      }
+
+      val audioManager = ServiceUtil.getAudioManager(requireContext())
+      if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) != volumeState.level) {
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volumeState.level, 0)
+        storyVolumeOverlayView.setVolumeLevel(volumeState.level)
+        storyVolumeOverlayView.setVideoHaNoAudio(!videoControlsDelegate.hasAudioStream())
+        displayStoryVolumeOverlayForTimeout(storyVolumeOverlayView)
+      }
+    }
+
     lifecycleDisposable += sharedViewModel.state.distinctUntilChanged().observeOn(AndroidSchedulers.mainThread()).subscribe { parentState ->
+      viewModel.setIsRunningSharedElementAnimation(!parentState.loadState.isCrossfaderReady)
+      storyContentContainer.visible = parentState.loadState.isCrossfaderReady
+
       if (parentState.pages.size <= parentState.page) {
         viewModel.setIsSelectedPage(false)
-      } else if (storyRecipientId == parentState.pages[parentState.page]) {
+      } else if (storyViewerPageArgs.recipientId == parentState.pages[parentState.page]) {
         if (progressBar.segmentCount != 0) {
           progressBar.reset()
           progressBar.setPosition(viewModel.getRestartIndex())
@@ -265,34 +384,41 @@ class StoryViewerPageFragment :
         }
         viewModel.setIsFirstPage(parentState.page == 0)
         viewModel.setIsSelectedPage(true)
-        when (parentState.crossfadeSource) {
-          is StoryViewerState.CrossfadeSource.TextModel -> storyCrossfader.setSourceView(parentState.crossfadeSource.storyTextPostModel)
-          is StoryViewerState.CrossfadeSource.ImageUri -> storyCrossfader.setSourceView(parentState.crossfadeSource.imageUri, parentState.crossfadeSource.imageBlur)
-          else -> onReadyToAnimate()
-        }
       } else {
         viewModel.setIsSelectedPage(false)
       }
     }
 
     lifecycleDisposable += viewModel.state.observeOn(AndroidSchedulers.mainThread()).subscribe { state ->
+      if (!state.isReady) {
+        return@subscribe
+      }
+
+      if (context == null) {
+        Log.d(TAG, "Subscriber called while fragment is detached. Ignoring state update.")
+        return@subscribe
+      }
+
       if (state.posts.isNotEmpty() && state.selectedPostIndex in state.posts.indices) {
         val post = state.posts[state.selectedPostIndex]
 
-        presentViewsAndReplies(post, state.replyState)
+        addToGroupStoryButton.visible = post.group != null
+
+        presentBottomBar(post, state.replyState, state.isReceiptsEnabled)
         presentSenderAvatar(senderAvatar, post)
         presentGroupAvatar(groupAvatar, post)
         presentFrom(from, post)
         presentDate(date, post)
         presentDistributionList(distributionList, post)
         presentCaption(caption, largeCaption, largeCaptionOverlay, post)
-        presentBlur(blurContainer, post)
 
         val durations: Map<Int, Long> = state.posts
           .mapIndexed { index, storyPost ->
             index to when {
+              storyPost.sender.isReleaseNotes -> ONBOARDING_DURATION
               storyPost.content.isVideo() -> -1L
               storyPost.content is StoryPost.Content.TextContent -> calculateDurationForText(storyPost.content)
+              storyPost.content is StoryPost.Content.AttachmentContent -> calculateDurationForAttachment(storyPost.content)
               else -> DEFAULT_DURATION
             }
           }
@@ -306,20 +432,20 @@ class StoryViewerPageFragment :
         presentStory(post, state.selectedPostIndex)
         presentSlate(post)
 
-        if (!storyCrossfader.setTargetView(post.conversationMessage.messageRecord as MmsMessageRecord)) {
-          onReadyToAnimate()
-        }
-
         viewModel.setAreSegmentsInitialized(true)
       } else if (state.selectedPostIndex >= state.posts.size) {
-        callback.onFinishedPosts(storyRecipientId)
+        callback.onFinishedPosts(storyViewerPageArgs.recipientId)
       } else if (state.selectedPostIndex < 0) {
-        callback.onGoToPreviousStory(storyRecipientId)
+        callback.onGoToPreviousStory(storyViewerPageArgs.recipientId)
       }
 
-      if (state.isDisplayingInitialState && isFromNotification && !sharedViewModel.hasConsumedInitialState) {
+      if (state.isDisplayingInitialState && !sharedViewModel.hasConsumedInitialState) {
         sharedViewModel.consumeInitialState()
-        startReply(isFromNotification = true, groupReplyStartPosition = groupReplyStartPosition)
+        if (storyViewerPageArgs.source == StoryViewerPageArgs.Source.NOTIFICATION) {
+          startReply(isFromNotification = true, groupReplyStartPosition = storyViewerPageArgs.groupReplyStartPosition)
+        } else if (storyViewerPageArgs.source == StoryViewerPageArgs.Source.INFO_CONTEXT && state.selectedPostIndex in state.posts.indices) {
+          showInfo(state.posts[state.selectedPostIndex])
+        }
       }
     }
 
@@ -333,15 +459,12 @@ class StoryViewerPageFragment :
       when {
         state.hideChromeImmediate -> {
           hideChromeImmediate()
-          storyCaptionContainer.visible = false
         }
         state.hideChrome -> {
           hideChrome()
-          storyCaptionContainer.visible = true
         }
         else -> {
           showChrome()
-          storyCaptionContainer.visible = true
         }
       }
     }
@@ -354,6 +477,8 @@ class StoryViewerPageFragment :
           is StoryViewerDialog.GroupDirectReply -> {
             onStartDirectReply(sheet.storyId, sheet.recipientId)
           }
+          StoryViewerDialog.Delete,
+          StoryViewerDialog.Forward -> Unit
         }
       }
     }
@@ -372,6 +497,8 @@ class StoryViewerPageFragment :
   override fun onResume() {
     super.onResume()
     viewModel.setIsFragmentResumed(true)
+    viewModel.checkReadReceiptState()
+    markViewedIfAble()
   }
 
   override fun onPause() {
@@ -386,6 +513,8 @@ class StoryViewerPageFragment :
         it.cleanUp()
       }
     }
+
+    volumeDebouncer.clear()
   }
 
   override fun onFinishForwardAction() = Unit
@@ -395,7 +524,20 @@ class StoryViewerPageFragment :
   }
 
   private fun calculateDurationForText(textContent: StoryPost.Content.TextContent): Long {
-    val divisionsOf15 = textContent.length / CHARACTERS_PER_SECOND
+    return calculateDurationForContentLength(textContent.length)
+  }
+
+  private fun calculateDurationForAttachment(attachmentContent: StoryPost.Content.AttachmentContent): Long {
+    val caption: String? = attachmentContent.attachment.caption
+    return if (caption.isNullOrEmpty()) {
+      DEFAULT_DURATION
+    } else {
+      max(DEFAULT_DURATION, calculateDurationForContentLength(caption.length))
+    }
+  }
+
+  private fun calculateDurationForContentLength(contentLength: Int): Long {
+    val divisionsOf15 = contentLength / CHARACTERS_PER_SECOND
     return TimeUnit.SECONDS.toMillis(divisionsOf15) + MIN_TEXT_STORY_PLAYBACK
   }
 
@@ -413,6 +555,26 @@ class StoryViewerPageFragment :
       max(MIN_GIF_PLAYBACK_DURATION, timeToPlayMinLoops)
     } else {
       min(playerState.duration, MAX_VIDEO_PLAYBACK_DURATION)
+    }
+  }
+
+  private fun displayStoryVolumeOverlayForTimeout(view: View) {
+    if (volumeInAnimator?.isRunning != true) {
+      volumeOutAnimator?.cancel()
+      volumeInAnimator = ObjectAnimator.ofFloat(view, View.ALPHA, 1f).apply {
+        duration = 200
+        start()
+      }
+    }
+
+    volumeDebouncer.publish {
+      if (volumeOutAnimator?.isRunning != true) {
+        volumeInAnimator?.cancel()
+        volumeOutAnimator = ObjectAnimator.ofFloat(view, View.ALPHA, 0f).apply {
+          duration = 200
+          start()
+        }
+      }
     }
   }
 
@@ -448,10 +610,10 @@ class StoryViewerPageFragment :
   private fun adjustConstraintsForScreenDimensions(
     viewsAndReplies: View,
     cardWrapper: View,
-    card: CardView
+    card: MaterialCardView
   ) {
     val constraintSet = ConstraintSet()
-    constraintSet.clone(requireView() as ConstraintLayout)
+    constraintSet.clone(storyPageContainer)
 
     when (StoryDisplay.getStoryDisplay(resources.displayMetrics.widthPixels.toFloat(), resources.displayMetrics.heightPixels.toFloat())) {
       StoryDisplay.LARGE -> {
@@ -474,12 +636,13 @@ class StoryViewerPageFragment :
       }
     }
 
-    constraintSet.applyTo(requireView() as ConstraintLayout)
+    constraintSet.applyTo(storyPageContainer)
   }
 
   private fun resumeProgress() {
-    if (progressBar.segmentCount != 0 && viewModel.hasPost()) {
-      val postUri = viewModel.getPost().content.uri
+    val storyPost = viewModel.getPost() ?: return
+    if (progressBar.segmentCount != 0) {
+      val postUri = storyPost.content.uri
       if (postUri != null) {
         progressBar.start()
         videoControlsDelegate.resume(postUri)
@@ -493,24 +656,34 @@ class StoryViewerPageFragment :
   }
 
   private fun startReply(isFromNotification: Boolean = false, groupReplyStartPosition: Int = -1) {
-    val storyPostId: Long = viewModel.getPost().id
+    val storyPost = viewModel.getPost() ?: return
+    val storyPostId: Long = storyPost.id
     val replyFragment: DialogFragment = when (viewModel.getSwipeToReplyState()) {
       StoryViewerPageState.ReplyState.NONE -> return
       StoryViewerPageState.ReplyState.SELF -> StoryViewsBottomSheetDialogFragment.create(storyPostId)
       StoryViewerPageState.ReplyState.GROUP -> StoryGroupReplyBottomSheetDialogFragment.create(
         storyPostId,
-        viewModel.getPost().group!!.id,
+        storyPost.group!!.id,
         isFromNotification,
         groupReplyStartPosition
       )
       StoryViewerPageState.ReplyState.PRIVATE -> StoryDirectReplyDialogFragment.create(storyPostId)
       StoryViewerPageState.ReplyState.GROUP_SELF -> StoryViewsAndRepliesDialogFragment.create(
         storyPostId,
-        viewModel.getPost().group!!.id,
+        storyPost.group!!.id,
         if (isFromNotification) StoryViewsAndRepliesDialogFragment.StartPage.REPLIES else getViewsAndRepliesDialogStartPage(),
         isFromNotification,
         groupReplyStartPosition
       )
+      StoryViewerPageState.ReplyState.PARTIAL_SEND -> {
+        handleResend(storyPost)
+        return
+      }
+      StoryViewerPageState.ReplyState.SEND_FAILURE -> {
+        handleResend(storyPost)
+        return
+      }
+      StoryViewerPageState.ReplyState.SENDING -> return
     }
 
     if (viewModel.getSwipeToReplyState() == StoryViewerPageState.ReplyState.PRIVATE) {
@@ -522,6 +695,33 @@ class StoryViewerPageFragment :
     replyFragment.showNow(childFragmentManager, BottomSheetUtil.STANDARD_BOTTOM_SHEET_FRAGMENT_TAG)
   }
 
+  private fun handleResend(storyPost: StoryPost) {
+    viewModel.setIsDisplayingPartialSendDialog(true)
+    if (storyPost.conversationMessage.messageRecord.isIdentityMismatchFailure) {
+      SafetyNumberBottomSheet
+        .forMessageRecord(requireContext(), storyPost.conversationMessage.messageRecord)
+        .show(childFragmentManager)
+    } else {
+      StoryDialogs.resendStory(requireContext(), { viewModel.setIsDisplayingPartialSendDialog(false) }) {
+        lifecycleDisposable += viewModel.resend(storyPost).subscribe()
+      }
+    }
+  }
+
+  private fun showInfo(storyPost: StoryPost) {
+    viewModel.setIsDisplayingInfoDialog(true)
+    StoryInfoBottomSheetDialogFragment.create(storyPost.id).show(childFragmentManager, BottomSheetUtil.STANDARD_BOTTOM_SHEET_FRAGMENT_TAG)
+  }
+
+  private fun markViewedIfAble() {
+    val post = viewModel.getPost() ?: return
+    if (post.content.transferState == AttachmentTable.TRANSFER_PROGRESS_DONE) {
+      if (isResumed) {
+        viewModel.markViewed(post)
+      }
+    }
+  }
+
   private fun onStartDirectReply(storyId: Long, recipientId: RecipientId) {
     viewModel.setIsDisplayingDirectReplyDialog(true)
     StoryDirectReplyDialogFragment.create(
@@ -531,7 +731,7 @@ class StoryViewerPageFragment :
   }
 
   private fun getViewsAndRepliesDialogStartPage(): StoryViewsAndRepliesDialogFragment.StartPage {
-    return if (viewModel.getPost().replyCount > 0) {
+    return if (viewModel.requirePost().replyCount > 0) {
       StoryViewsAndRepliesDialogFragment.StartPage.REPLIES
     } else {
       StoryViewsAndRepliesDialogFragment.StartPage.VIEWS
@@ -539,16 +739,6 @@ class StoryViewerPageFragment :
   }
 
   private fun presentStory(post: StoryPost, index: Int) {
-    val fragment = childFragmentManager.findFragmentById(R.id.story_content_container)
-    if (fragment != null && fragment.requireArguments().getParcelable<Uri>(MediaPreviewFragment.DATA_URI) == post.content.uri) {
-      progressBar.setPosition(index)
-      return
-    }
-
-    if (fragment is MediaPreviewFragment) {
-      fragment.cleanUp()
-    }
-
     if (post.content.uri == null) {
       progressBar.setPosition(index)
       progressBar.invalidate()
@@ -556,34 +746,42 @@ class StoryViewerPageFragment :
       progressBar.setPosition(index)
       storySlate.moveToState(StorySlateView.State.HIDDEN, post.id)
       viewModel.setIsDisplayingSlate(false)
-      childFragmentManager.beginTransaction()
-        .replace(R.id.story_content_container, createFragmentForPost(post))
-        .commitNow()
     }
   }
 
   private fun presentSlate(post: StoryPost) {
     storySlate.setBackground((post.conversationMessage.messageRecord as? MediaMmsMessageRecord)?.slideDeck?.thumbnailSlide?.placeholderBlur)
 
+    if (post.conversationMessage.messageRecord.isOutgoing) {
+      storySlate.moveToState(StorySlateView.State.HIDDEN, post.id)
+      viewModel.setIsDisplayingSlate(false)
+      return
+    }
+
     when (post.content.transferState) {
-      AttachmentDatabase.TRANSFER_PROGRESS_DONE -> {
+      AttachmentTable.TRANSFER_PROGRESS_DONE -> {
         storySlate.moveToState(StorySlateView.State.HIDDEN, post.id)
         viewModel.setIsDisplayingSlate(false)
-
-        if (post.content.transferState == AttachmentDatabase.TRANSFER_PROGRESS_DONE) {
-          viewModel.markViewed(post)
-        }
+        markViewedIfAble()
       }
-      AttachmentDatabase.TRANSFER_PROGRESS_PENDING -> {
+      AttachmentTable.TRANSFER_PROGRESS_PENDING -> {
         storySlate.moveToState(StorySlateView.State.LOADING, post.id)
+        sharedViewModel.setContentIsReady()
         viewModel.setIsDisplayingSlate(true)
       }
-      AttachmentDatabase.TRANSFER_PROGRESS_STARTED -> {
+      AttachmentTable.TRANSFER_PROGRESS_STARTED -> {
         storySlate.moveToState(StorySlateView.State.LOADING, post.id)
+        sharedViewModel.setContentIsReady()
         viewModel.setIsDisplayingSlate(true)
       }
-      AttachmentDatabase.TRANSFER_PROGRESS_FAILED -> {
-        storySlate.moveToState(StorySlateView.State.NOT_FOUND, post.id)
+      AttachmentTable.TRANSFER_PROGRESS_FAILED -> {
+        storySlate.moveToState(StorySlateView.State.ERROR, post.id)
+        sharedViewModel.setContentIsReady()
+        viewModel.setIsDisplayingSlate(true)
+      }
+      AttachmentTable.TRANSFER_PROGRESS_PERMANENT_FAILURE -> {
+        storySlate.moveToState(StorySlateView.State.FAILED, post.id, post.sender)
+        sharedViewModel.setContentIsReady()
         viewModel.setIsDisplayingSlate(true)
       }
     }
@@ -611,24 +809,22 @@ class StoryViewerPageFragment :
     distributionList.visible = storyPost.distributionList != null && !storyPost.distributionList.isMyStory
   }
 
-  private fun presentBlur(blur: ImageView, storyPost: StoryPost) {
-    val record = storyPost.conversationMessage.messageRecord as? MediaMmsMessageRecord
-    val blurHash = record?.slideDeck?.thumbnailSlide?.placeholderBlur
-
-    if (blurHash == null) {
-      GlideApp.with(blur).clear(blur)
-    } else {
-      GlideApp.with(blur).load(blurHash).into(blur)
-    }
-  }
-
   @SuppressLint("SetTextI18n")
   private fun presentCaption(caption: TextView, largeCaption: TextView, largeCaptionOverlay: View, storyPost: StoryPost) {
-    val displayBody: String = if (storyPost.content is StoryPost.Content.AttachmentContent) {
-      storyPost.content.attachment.caption ?: ""
+    val displayBody: CharSequence = if (storyPost.content is StoryPost.Content.AttachmentContent) {
+      val displayBodySpan = SpannableString(storyPost.content.attachment.caption ?: "")
+      val ranges: BodyRangeList? = storyPost.conversationMessage.messageRecord.messageRanges
+      if (ranges != null && displayBodySpan.isNotEmpty()) {
+        MessageStyler.style(storyPost.conversationMessage.messageRecord.dateSent, ranges, displayBodySpan)
+      }
+
+      displayBodySpan
     } else {
       ""
     }
+
+    storyNormalBottomGradient.visible = !displayBody.isNotEmpty()
+    storyCaptionBottomGradient.visible = displayBody.isNotEmpty()
 
     caption.text = displayBody
     largeCaption.text = displayBody
@@ -674,9 +870,16 @@ class StoryViewerPageFragment :
   }
 
   private fun onShowCaptionOverlay(caption: TextView, largeCaption: TextView, largeCaptionOverlay: View) {
+    sharedViewModel.setIsChildScrolling(true)
+
     caption.visible = false
     largeCaption.visible = true
     largeCaptionOverlay.visible = true
+    largeCaption.movementMethod = ScrollingMovementMethod()
+    largeCaption.scrollY = 0
+    largeCaption.setOnClickListener {
+      onHideCaptionOverlay(caption, largeCaption, largeCaptionOverlay)
+    }
     largeCaptionOverlay.setOnClickListener {
       onHideCaptionOverlay(caption, largeCaption, largeCaptionOverlay)
     }
@@ -687,8 +890,10 @@ class StoryViewerPageFragment :
     caption.visible = true
     largeCaption.visible = false
     largeCaptionOverlay.visible = false
+    largeCaption.setOnClickListener(null)
     largeCaptionOverlay.setOnClickListener(null)
     viewModel.setIsDisplayingCaptionOverlay(false)
+    sharedViewModel.setIsChildScrolling(false)
   }
 
   private fun presentFrom(from: TextView, storyPost: StoryPost) {
@@ -703,6 +908,8 @@ class StoryViewerPageFragment :
     } else {
       from.text = name
     }
+
+    from.setOnClickListener { onSenderClicked(storyPost.sender.id) }
   }
 
   private fun presentDate(date: TextView, storyPost: StoryPost) {
@@ -711,18 +918,28 @@ class StoryViewerPageFragment :
 
   private fun presentSenderAvatar(senderAvatar: AvatarImageView, post: StoryPost) {
     AvatarUtil.loadIconIntoImageView(post.sender, senderAvatar, DimensionUnit.DP.toPixels(32f).toInt())
+    senderAvatar.setOnClickListener { onSenderClicked(post.sender.id) }
   }
 
   private fun presentGroupAvatar(groupAvatar: AvatarImageView, post: StoryPost) {
     if (post.group != null) {
       groupAvatar.setRecipient(post.group)
       groupAvatar.visible = true
+      groupAvatar.setOnClickListener { onSenderClicked(post.sender.id) }
     } else {
       groupAvatar.visible = false
+      groupAvatar.setOnClickListener(null)
     }
   }
 
-  private fun presentViewsAndReplies(post: StoryPost, replyState: StoryViewerPageState.ReplyState) {
+  private fun onSenderClicked(senderId: RecipientId) {
+    viewModel.setIsDisplayingRecipientBottomSheet(true)
+    RecipientBottomSheetDialogFragment
+      .create(senderId, null)
+      .show(childFragmentManager, "BOTTOM")
+  }
+
+  private fun presentBottomBar(post: StoryPost, replyState: StoryViewerPageState.ReplyState, isReceiptsEnabled: Boolean) {
     if (replyState == StoryViewerPageState.ReplyState.NONE) {
       viewsAndReplies.visible = false
       return
@@ -730,38 +947,102 @@ class StoryViewerPageFragment :
       viewsAndReplies.visible = true
     }
 
+    sendingBar.visible = false
+    viewsAndReplies.isEnabled = true
+    viewsAndReplies.iconTint = ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.signal_colorOnSurface))
+
+    when (replyState) {
+      StoryViewerPageState.ReplyState.SENDING -> presentSendingBottomBar()
+      StoryViewerPageState.ReplyState.PARTIAL_SEND -> presentPartialSendBottomBar()
+      StoryViewerPageState.ReplyState.SEND_FAILURE -> presentSendFailureBottomBar()
+      else -> presentViewsAndRepliesBottomBar(post, isReceiptsEnabled)
+    }
+  }
+
+  private fun presentSendingBottomBar() {
+    if (sendingProgressDrawable == null) {
+      sendingProgressDrawable = IndeterminateDrawable.createCircularDrawable(
+        requireContext(),
+        CircularProgressIndicatorSpec(requireContext(), null).apply {
+          indicatorSize = 18.dp
+          indicatorInset = 2.dp
+          trackColor = ContextCompat.getColor(requireContext(), R.color.transparent_white_40)
+          indicatorColors = intArrayOf(ContextCompat.getColor(requireContext(), R.color.signal_dark_colorNeutralInverse))
+          trackThickness = 2.dp
+        }
+      ).apply {
+        setBounds(0, 0, 20.dp, 20.dp)
+      }
+    }
+
+    sendingBarTextView.setCompoundDrawablesRelativeWithIntrinsicBounds(
+      sendingProgressDrawable,
+      null,
+      null,
+      null
+    )
+
+    sendingBar.visible = true
+    viewsAndReplies.isEnabled = false
+  }
+
+  private fun presentPartialSendBottomBar() {
+    viewsAndReplies.setIconResource(R.drawable.symbol_error_circle_24)
+    viewsAndReplies.iconTint = ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.signal_light_colorError))
+    viewsAndReplies.iconSize = 20.dp
+    viewsAndReplies.setText(R.string.StoryViewerPageFragment__partially_sent)
+  }
+
+  private fun presentSendFailureBottomBar() {
+    viewsAndReplies.setIconResource(R.drawable.symbol_error_circle_24)
+    viewsAndReplies.iconTint = ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.signal_light_colorError))
+    viewsAndReplies.iconSize = 20.dp
+    viewsAndReplies.setText(R.string.StoryViewerPageFragment__send_failed)
+  }
+
+  private fun presentViewsAndRepliesBottomBar(post: StoryPost, isReceiptsEnabled: Boolean) {
     val views = resources.getQuantityString(R.plurals.StoryViewerFragment__d_views, post.viewCount, post.viewCount)
     val replies = resources.getQuantityString(R.plurals.StoryViewerFragment__d_replies, post.replyCount, post.replyCount)
 
     if (Recipient.self() == post.sender) {
-      if (post.replyCount == 0) {
-        viewsAndReplies.setIconResource(R.drawable.ic_chevron_end_24)
-        viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
-        viewsAndReplies.text = views
+      if (isReceiptsEnabled) {
+        if (post.replyCount == 0) {
+          viewsAndReplies.setIconResource(R.drawable.symbol_chevron_right_compact_bold_16)
+          viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(16f).toInt()
+          viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
+          viewsAndReplies.text = views
+        } else {
+          viewsAndReplies.setIconResource(R.drawable.symbol_chevron_right_compact_bold_16)
+          viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(16f).toInt()
+          viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
+          viewsAndReplies.text = getString(R.string.StoryViewerFragment__s_s, views, replies)
+        }
       } else {
-        viewsAndReplies.setIconResource(R.drawable.ic_chevron_end_24)
-        viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
-        viewsAndReplies.text = getString(R.string.StoryViewerFragment__s_s, views, replies)
+        if (post.replyCount == 0) {
+          viewsAndReplies.icon = null
+          viewsAndReplies.setText(R.string.StoryViewerPageFragment__views_off)
+        } else {
+          viewsAndReplies.setIconResource(R.drawable.symbol_chevron_right_compact_bold_16)
+          viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(16f).toInt()
+          viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
+          viewsAndReplies.text = replies
+        }
       }
     } else if (post.replyCount > 0) {
-      viewsAndReplies.setIconResource(R.drawable.ic_chevron_end_24)
+      viewsAndReplies.setIconResource(R.drawable.symbol_chevron_right_compact_bold_16)
+      viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(16f).toInt()
       viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
       viewsAndReplies.text = replies
     } else if (post.group != null) {
-      viewsAndReplies.setIconResource(R.drawable.ic_reply_24_outline)
+      viewsAndReplies.setIconResource(R.drawable.symbol_reply_24)
+      viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(20f).toInt()
       viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
       viewsAndReplies.setText(R.string.StoryViewerPageFragment__reply_to_group)
     } else {
-      viewsAndReplies.setIconResource(R.drawable.ic_reply_24_outline)
+      viewsAndReplies.setIconResource(R.drawable.symbol_reply_24)
+      viewsAndReplies.iconSize = DimensionUnit.DP.toPixels(20f).toInt()
       viewsAndReplies.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
       viewsAndReplies.setText(R.string.StoryViewerPageFragment__reply)
-    }
-  }
-
-  private fun createFragmentForPost(storyPost: StoryPost): Fragment {
-    return when (storyPost.content) {
-      is StoryPost.Content.AttachmentContent -> MediaPreviewFragment.newInstance(storyPost.content.attachment, false)
-      is StoryPost.Content.TextContent -> StoryTextPostPreviewFragment.create(storyPost.content)
     }
   }
 
@@ -786,17 +1067,20 @@ class StoryViewerPageFragment :
         viewModel.setIsDisplayingForwardDialog(true)
         MultiselectForwardFragmentArgs.create(
           requireContext(),
-          storyPost.conversationMessage.multiselectCollection.toSet(),
+          storyPost.conversationMessage.multiselectCollection.toSet()
         ) {
           MultiselectForwardFragment.showBottomSheet(childFragmentManager, it)
         }
       },
       onGoToChat = {
-        startActivity(ConversationIntents.createBuilder(requireContext(), storyRecipientId, -1L).build())
+        startActivity(ConversationIntents.createBuilder(requireContext(), storyViewerPageArgs.recipientId, -1L).build())
       },
       onHide = {
-        lifecycleDisposable += viewModel.hideStory().subscribe {
-          callback.onStoryHidden(storyRecipientId)
+        viewModel.setIsDisplayingHideDialog(true)
+        StoryDialogs.hideStory(requireContext(), Recipient.resolved(storyViewerPageArgs.recipientId).getDisplayName(requireContext()), { viewModel.setIsDisplayingHideDialog(false) }) {
+          lifecycleDisposable += viewModel.hideStory().subscribe {
+            callback.onStoryHidden(storyViewerPageArgs.recipientId)
+          }
         }
       },
       onShare = {
@@ -811,66 +1095,162 @@ class StoryViewerPageFragment :
           viewModel.setIsDisplayingDeleteDialog(false)
           viewModel.refresh()
         }
+      },
+      onInfo = {
+        showInfo(it)
       }
     )
   }
 
+  class SingleTapHandler(
+    private val container: View,
+    private val onGoToNext: () -> Unit,
+    private val onGoToPrevious: () -> Unit
+  ) {
+
+    companion object {
+      private const val BOUNDARY_NEXT = 0.80f
+      private const val BOUNDARY_PREV = 1f - BOUNDARY_NEXT
+    }
+
+    fun onActionUp(e: MotionEvent) {
+      if (e.x < container.measuredWidth * getLeftBoundary()) {
+        onGoToPrevious()
+      } else if (e.x > container.measuredWidth - (container.measuredWidth * getRightBoundary())) {
+        onGoToNext()
+      }
+    }
+
+    private fun getLeftBoundary(): Float {
+      return if (container.layoutDirection == View.LAYOUT_DIRECTION_LTR) {
+        BOUNDARY_PREV
+      } else {
+        BOUNDARY_NEXT
+      }
+    }
+
+    private fun getRightBoundary(): Float {
+      return if (container.layoutDirection == View.LAYOUT_DIRECTION_LTR) {
+        BOUNDARY_NEXT
+      } else {
+        BOUNDARY_PREV
+      }
+    }
+  }
+
   companion object {
+    private val TAG = Log.tag(StoryViewerPageFragment::class.java)
+
     private val MAX_VIDEO_PLAYBACK_DURATION: Long = TimeUnit.SECONDS.toMillis(30)
     private val MIN_GIF_LOOPS: Long = 3L
     private val MIN_GIF_PLAYBACK_DURATION = TimeUnit.SECONDS.toMillis(5)
     private val MIN_TEXT_STORY_PLAYBACK = TimeUnit.SECONDS.toMillis(3)
     private val CHARACTERS_PER_SECOND = 15L
     private val DEFAULT_DURATION = TimeUnit.SECONDS.toMillis(5)
+    private val ONBOARDING_DURATION = TimeUnit.SECONDS.toMillis(10)
 
-    private const val ARG_STORY_RECIPIENT_ID = "arg.story.recipient.id"
-    private const val ARG_STORY_ID = "arg.story.id"
-    private const val ARG_IS_FROM_NOTIFICATION = "is_from_notification"
-    private const val ARG_GROUP_REPLY_START_POSITION = "group_reply_start_position"
+    private const val ARGS = "args"
 
-    fun create(recipientId: RecipientId, initialStoryId: Long, isFromNotification: Boolean, groupReplyStartPosition: Int): Fragment {
+    fun create(args: StoryViewerPageArgs): Fragment {
       return StoryViewerPageFragment().apply {
-        arguments = Bundle().apply {
-          putParcelable(ARG_STORY_RECIPIENT_ID, recipientId)
-          putLong(ARG_STORY_ID, initialStoryId)
-          putBoolean(ARG_IS_FROM_NOTIFICATION, isFromNotification)
-          putInt(ARG_GROUP_REPLY_START_POSITION, groupReplyStartPosition)
-        }
+        arguments = bundleOf(
+          ARGS to args
+        )
       }
+    }
+  }
+
+  private class StoryScaleListener(
+    val viewModel: StoryViewerPageViewModel,
+    val sharedViewModel: StoryViewerViewModel,
+    val card: View
+  ) : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+
+    private var scaleFactor = 1f
+
+    var isPerformingEndAnimation: Boolean = false
+      private set
+
+    override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+      viewModel.setIsUserScaling(true)
+      sharedViewModel.setIsChildScrolling(true)
+      card.animate().cancel()
+      card.apply {
+        pivotX = detector.focusX
+        pivotY = detector.focusY
+      }
+
+      return true
+    }
+
+    override fun onScale(detector: ScaleGestureDetector): Boolean {
+      scaleFactor *= detector.scaleFactor
+
+      card.apply {
+        scaleX = max(scaleFactor, 1f)
+        scaleY = max(scaleFactor, 1f)
+      }
+
+      return true
+    }
+
+    override fun onScaleEnd(detector: ScaleGestureDetector) {
+      scaleFactor = 1f
+      isPerformingEndAnimation = true
+      card.animate().scaleX(1f).scaleY(1f).setListener(object : AnimationCompleteListener() {
+        override fun onAnimationEnd(animation: Animator) {
+          isPerformingEndAnimation = false
+          viewModel.setIsUserScaling(false)
+          sharedViewModel.setIsChildScrolling(false)
+        }
+      })
     }
   }
 
   private class StoryGestureListener(
     private val container: View,
-    private val onGoToNext: () -> Unit,
-    private val onGoToPrevious: () -> Unit,
+    private val singleTapHandler: SingleTapHandler,
     private val onReplyToPost: () -> Unit,
+    private val onContentTranslation: (Float, Float) -> Unit,
     private val viewToTranslate: View = container.parent as View,
     private val sharedViewModel: StoryViewerViewModel
   ) : GestureDetector.SimpleOnGestureListener() {
 
     companion object {
-      private const val BOUNDARY_NEXT = 0.80f
-      private const val BOUNDARY_PREV = 1f - BOUNDARY_NEXT
-
       val INTERPOLATOR: Interpolator = PathInterpolatorCompat.create(0.4f, 0f, 0.2f, 1f)
     }
 
     private val maxSlide = DimensionUnit.DP.toPixels(56f * 2)
 
-    override fun onDown(e: MotionEvent?): Boolean {
+    override fun onDown(e: MotionEvent): Boolean {
+      return true
+    }
+
+    override fun onSingleTapUp(e: MotionEvent): Boolean {
+      singleTapHandler.onActionUp(e)
       return true
     }
 
     override fun onScroll(e1: MotionEvent, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
       val isFirstStory = sharedViewModel.stateSnapshot.page == 0
+      val isLastStory = sharedViewModel.stateSnapshot.pages.lastIndex == sharedViewModel.stateSnapshot.page
       val isXMagnitudeGreaterThanYMagnitude = abs(distanceX) > abs(distanceY) || viewToTranslate.translationX > 0f
       val isFirstAndHasYTranslationOrNegativeY = isFirstStory && (viewToTranslate.translationY > 0f || distanceY < 0f)
+      val isLastAndHasYTranslationOrNegativeY = isLastStory && (viewToTranslate.translationY < 0f || distanceY > 0f)
 
-      sharedViewModel.setIsChildScrolling(isXMagnitudeGreaterThanYMagnitude || isFirstAndHasYTranslationOrNegativeY)
+      sharedViewModel.setIsChildScrolling(isXMagnitudeGreaterThanYMagnitude || isFirstAndHasYTranslationOrNegativeY || isLastAndHasYTranslationOrNegativeY)
       if (isFirstStory) {
         val delta = max(0f, (e2.rawY - e1.rawY)) / 3f
         val percent = INTERPOLATOR.getInterpolation(delta / maxSlide)
+        val distance = maxSlide * percent
+
+        viewToTranslate.animate().cancel()
+        viewToTranslate.translationY = distance
+      }
+
+      if (isLastStory) {
+        val delta = max(0f, (e1.rawY - e2.rawY)) / 3f
+        val percent = -INTERPOLATOR.getInterpolation(delta / maxSlide)
         val distance = maxSlide * percent
 
         viewToTranslate.animate().cancel()
@@ -884,10 +1264,12 @@ class StoryViewerPageFragment :
       viewToTranslate.animate().cancel()
       viewToTranslate.translationX = distance
 
+      onContentTranslation(viewToTranslate.translationX, viewToTranslate.translationY)
+
       return true
     }
 
-    override fun onFling(e1: MotionEvent?, e2: MotionEvent?, velocityX: Float, velocityY: Float): Boolean {
+    override fun onFling(e1: MotionEvent, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
       val isSideSwipe = abs(velocityX) > abs(velocityY)
       if (!isSideSwipe) {
         return false
@@ -907,55 +1289,11 @@ class StoryViewerPageFragment :
 
       return true
     }
-
-    private fun getLeftBoundary(): Float {
-      return if (container.layoutDirection == View.LAYOUT_DIRECTION_LTR) {
-        BOUNDARY_PREV
-      } else {
-        BOUNDARY_NEXT
-      }
-    }
-
-    private fun getRightBoundary(): Float {
-      return if (container.layoutDirection == View.LAYOUT_DIRECTION_LTR) {
-        BOUNDARY_NEXT
-      } else {
-        BOUNDARY_PREV
-      }
-    }
-
-    override fun onSingleTapUp(e: MotionEvent): Boolean {
-      if (e.x < container.measuredWidth * getLeftBoundary()) {
-        performLeftAction()
-        return true
-      } else if (e.x > container.measuredWidth - (container.measuredWidth * getRightBoundary())) {
-        performRightAction()
-        return true
-      }
-
-      return false
-    }
-
-    private fun performLeftAction() {
-      if (container.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
-        onGoToNext()
-      } else {
-        onGoToPrevious()
-      }
-    }
-
-    private fun performRightAction() {
-      if (container.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
-        onGoToPrevious()
-      } else {
-        onGoToNext()
-      }
-    }
   }
 
   private class FallbackPhotoProvider : Recipient.FallbackPhotoProvider() {
     override fun getPhotoForGroup(): FallbackContactPhoto {
-      return FallbackPhoto20dp(R.drawable.ic_group_outline_20)
+      return FallbackPhoto20dp(R.drawable.symbol_group_20)
     }
 
     override fun getPhotoForResolvingRecipient(): FallbackContactPhoto {
@@ -967,11 +1305,11 @@ class StoryViewerPageFragment :
     }
 
     override fun getPhotoForRecipientWithName(name: String, targetSize: Int): FallbackContactPhoto {
-      return FixedSizeGeneratedContactPhoto(name, R.drawable.ic_profile_outline_20)
+      return FixedSizeGeneratedContactPhoto(name, R.drawable.symbol_person_20)
     }
 
     override fun getPhotoForRecipientWithoutName(): FallbackContactPhoto {
-      return FallbackPhoto20dp(R.drawable.ic_profile_outline_20)
+      return FallbackPhoto20dp(R.drawable.symbol_person_20)
     }
   }
 
@@ -981,37 +1319,38 @@ class StoryViewerPageFragment :
     }
   }
 
-  override fun singleTapOnMedia(): Boolean {
-    return false
-  }
-
-  override fun onMediaReady() {
+  override fun onContentReady() {
     sharedViewModel.setContentIsReady()
   }
 
-  override fun mediaNotAvailable() {
+  override fun onContentNotAvailable() {
     sharedViewModel.setContentIsReady()
   }
 
-  override fun onReadyToAnimate() {
-    sharedViewModel.setCrossfaderIsReady()
+  override fun onInfoSheetDismissed() {
+    viewModel.setIsDisplayingInfoDialog(false)
   }
 
-  override fun onAnimationStarted() {
-    storyContentContainer.alpha = 0f
-    blurContainer.alpha = 0f
-    viewModel.setIsRunningSharedElementAnimation(true)
+  override fun sendAnywayAfterSafetyNumberChangedInBottomSheet(destinations: List<ContactSearchKey.RecipientSearchKey>) {
+    error("Not supported, we handed a message record to the bottom sheet.")
   }
 
-  override fun onAnimationFinished() {
-    storyContentContainer.alpha = 1f
-    blurContainer.alpha = 1f
-    viewModel.setIsRunningSharedElementAnimation(false)
+  override fun onMessageResentAfterSafetyNumberChangeInBottomSheet() {
+    viewModel.setIsDisplayingPartialSendDialog(false)
+  }
+
+  override fun onCanceled() {
+    viewModel.setIsDisplayingPartialSendDialog(false)
+  }
+
+  override fun onRecipientBottomSheetDismissed() {
+    viewModel.setIsDisplayingRecipientBottomSheet(false)
   }
 
   interface Callback {
     fun onGoToPreviousStory(recipientId: RecipientId)
     fun onFinishedPosts(recipientId: RecipientId)
     fun onStoryHidden(recipientId: RecipientId)
+    fun onContentTranslation(x: Float, y: Float)
   }
 }

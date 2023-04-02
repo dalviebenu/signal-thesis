@@ -9,9 +9,32 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 public final class ActiveSubscription {
 
   public static final ActiveSubscription EMPTY = new ActiveSubscription(null, null);
+
+  public enum Processor {
+    STRIPE("STRIPE"),
+    BRAINTREE("BRAINTREE");
+
+    private final String code;
+
+    Processor(String code) {
+      this.code = code;
+    }
+
+    static Processor fromCode(String code) {
+      for (Processor value : Processor.values()) {
+        if (value.code.equals(code)) {
+          return value;
+        }
+      }
+
+      return STRIPE;
+    }
+  }
 
   private enum Status {
     /**
@@ -119,6 +142,7 @@ public final class ActiveSubscription {
     private final long       billingCycleAnchor;
     private final boolean    willCancelAtPeriodEnd;
     private final String     status;
+    private final Processor  processor;
 
     @JsonCreator
     public Subscription(@JsonProperty("level") int level,
@@ -128,7 +152,8 @@ public final class ActiveSubscription {
                         @JsonProperty("active") boolean isActive,
                         @JsonProperty("billingCycleAnchor") long billingCycleAnchor,
                         @JsonProperty("cancelAtPeriodEnd") boolean willCancelAtPeriodEnd,
-                        @JsonProperty("status") String status)
+                        @JsonProperty("status") String status,
+                        @JsonProperty("processor") String processor)
     {
       this.level                 = level;
       this.currency              = currency;
@@ -138,6 +163,7 @@ public final class ActiveSubscription {
       this.billingCycleAnchor    = billingCycleAnchor;
       this.willCancelAtPeriodEnd = willCancelAtPeriodEnd;
       this.status                = status;
+      this.processor             = Processor.fromCode(processor);
     }
 
     public int getLevel() {
@@ -186,6 +212,10 @@ public final class ActiveSubscription {
      */
     public String getStatus() {
       return status;
+    }
+
+    public Processor getProcessor() {
+      return processor;
     }
 
     public boolean isInProgress() {
@@ -270,7 +300,7 @@ public final class ActiveSubscription {
      * <p>
      * See: <a href="https://stripe.com/docs/api/charges/object#charge_object-outcome-reason">https://stripe.com/docs/api/charges/object#charge_object-outcome-reason</a>
      */
-    public String getOutcomeNetworkReason() {
+    public @Nullable String getOutcomeNetworkReason() {
       return outcomeNetworkReason;
     }
 
@@ -281,6 +311,15 @@ public final class ActiveSubscription {
      */
     public String getOutcomeType() {
       return outcomeType;
+    }
+
+    @Override public String toString() {
+      return "ChargeFailure{" +
+             "code='" + code + '\'' +
+             ", outcomeNetworkStatus='" + outcomeNetworkStatus + '\'' +
+             ", outcomeNetworkReason='" + outcomeNetworkReason + '\'' +
+             ", outcomeType='" + outcomeType + '\'' +
+             '}';
     }
   }
 }

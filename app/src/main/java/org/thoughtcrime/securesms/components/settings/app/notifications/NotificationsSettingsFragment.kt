@@ -19,10 +19,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
+import org.signal.core.util.getParcelableExtraCompat
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.DSLConfiguration
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.DSLSettingsText
 import org.thoughtcrime.securesms.components.settings.PreferenceModel
@@ -35,6 +35,7 @@ import org.thoughtcrime.securesms.notifications.NotificationChannels
 import org.thoughtcrime.securesms.util.RingtoneUtil
 import org.thoughtcrime.securesms.util.ViewUtil
 import org.thoughtcrime.securesms.util.adapter.mapping.LayoutFactory
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
 
 private const val MESSAGE_SOUND_SELECT: Int = 1
@@ -62,15 +63,15 @@ class NotificationsSettingsFragment : DSLSettingsFragment(R.string.preferences__
 
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode == MESSAGE_SOUND_SELECT && resultCode == Activity.RESULT_OK && data != null) {
-      val uri = data.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+      val uri: Uri? = data.getParcelableExtraCompat(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
       viewModel.setMessageNotificationsSound(uri)
     } else if (requestCode == CALL_RINGTONE_SELECT && resultCode == Activity.RESULT_OK && data != null) {
-      val uri = data.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+      val uri: Uri? = data.getParcelableExtraCompat(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
       viewModel.setCallRingtone(uri)
     }
   }
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     adapter.registerFactory(
       LedColorPreference::class.java,
       LayoutFactory(::LedColorPreferenceViewHolder, R.layout.dsl_preference_item)
@@ -104,11 +105,10 @@ class NotificationsSettingsFragment : DSLSettingsFragment(R.string.preferences__
           summary = DSLSettingsText.from(R.string.preferences__change_sound_and_vibration),
           isEnabled = state.messageNotificationsState.notificationsEnabled,
           onClick = {
-            NotificationChannels.openChannelSettings(requireContext(), NotificationChannels.getMessagesChannel(requireContext()), null)
+            NotificationChannels.getInstance().openChannelSettings(requireActivity(), NotificationChannels.getInstance().messagesChannel, null)
           }
         )
       } else {
-
         clickPref(
           title = DSLSettingsText.from(R.string.preferences__sound),
           summary = DSLSettingsText.from(getRingtoneSummary(state.messageNotificationsState.sound)),
@@ -301,7 +301,7 @@ class NotificationsSettingsFragment : DSLSettingsFragment(R.string.preferences__
     val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
     intent.putExtra(
       Settings.EXTRA_CHANNEL_ID,
-      NotificationChannels.getMessagesChannel(requireContext())
+      NotificationChannels.getInstance().messagesChannel
     )
     intent.putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
     startActivity(intent)

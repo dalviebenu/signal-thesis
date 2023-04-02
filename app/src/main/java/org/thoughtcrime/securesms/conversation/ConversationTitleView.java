@@ -2,15 +2,17 @@ package org.thoughtcrime.securesms.conversation;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
+import android.os.Bundle;
+import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
 import android.widget.ImageView;
-import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.content.ContextCompat;
 
 import com.annimon.stream.Collectors;
@@ -28,7 +30,10 @@ import org.thoughtcrime.securesms.util.DrawableUtil;
 import org.thoughtcrime.securesms.util.ExpirationUtil;
 import org.thoughtcrime.securesms.util.ViewUtil;
 
-public class ConversationTitleView extends RelativeLayout {
+public class ConversationTitleView extends ConstraintLayout {
+
+  private static final String STATE_ROOT = "root";
+  private static final String STATE_IS_SELF = "is_self";
 
   private AvatarView      avatar;
   private BadgeImageView  badge;
@@ -39,6 +44,7 @@ public class ConversationTitleView extends RelativeLayout {
   private View            verifiedSubtitle;
   private View            expirationBadgeContainer;
   private TextView        expirationBadgeTime;
+  private boolean         isSelf;
 
   public ConversationTitleView(Context context) {
     this(context, null);
@@ -66,7 +72,33 @@ public class ConversationTitleView extends RelativeLayout {
     ViewUtil.setTextViewGravityStart(this.subtitle, getContext());
   }
 
+
+  @Override
+  protected @NonNull Parcelable onSaveInstanceState() {
+    Bundle bundle = new Bundle();
+
+    bundle.putParcelable(STATE_ROOT, super.onSaveInstanceState());
+    bundle.putBoolean(STATE_IS_SELF, isSelf);
+
+    return bundle;
+  }
+
+  @Override
+  protected void onRestoreInstanceState(Parcelable state) {
+    if (state instanceof Bundle) {
+      Parcelable rootState = ((Bundle) state).getParcelable(STATE_ROOT);
+      super.onRestoreInstanceState(rootState);
+
+      isSelf = ((Bundle) state).getBoolean(STATE_IS_SELF, false);
+    } else {
+      super.onRestoreInstanceState(state);
+    }
+  }
+
+
   public void showExpiring(@NonNull LiveRecipient recipient) {
+    isSelf = recipient.get().isSelf();
+
     expirationBadgeTime.setText(ExpirationUtil.getExpirationAbbreviatedDisplayValue(getContext(), recipient.get().getExpiresInSeconds()));
     expirationBadgeContainer.setVisibility(View.VISIBLE);
     updateSubtitleVisibility();
@@ -78,6 +110,8 @@ public class ConversationTitleView extends RelativeLayout {
   }
 
   public void setTitle(@NonNull GlideRequests glideRequests, @Nullable Recipient recipient) {
+    isSelf = recipient != null && recipient.isSelf();
+
     this.subtitleContainer.setVisibility(View.VISIBLE);
 
     if   (recipient == null) setComposeTitle();
@@ -158,7 +192,9 @@ public class ConversationTitleView extends RelativeLayout {
 
   private void setGroupRecipientTitle(@NonNull Recipient recipient) {
     this.title.setText(recipient.getDisplayName(getContext()));
-    this.subtitle.setText(Stream.of(recipient.getParticipants())
+    this.subtitle.setText(Stream.of(recipient.getParticipantIds())
+                                .limit(10)
+                                .map(Recipient::resolved)
                                 .sorted((a, b) -> Boolean.compare(a.isSelf(), b.isSelf()))
                                 .map(r -> r.isSelf() ? getResources().getString(R.string.ConversationTitleView_you)
                                                      : r.getDisplayName(getContext()))
@@ -169,7 +205,7 @@ public class ConversationTitleView extends RelativeLayout {
 
   private void setSelfTitle() {
     this.title.setText(R.string.note_to_self);
-    this.subtitleContainer.setVisibility(View.GONE);
+    updateSubtitleVisibility();
   }
 
   private void setIndividualRecipientTitle(@NonNull Recipient recipient) {
@@ -177,15 +213,14 @@ public class ConversationTitleView extends RelativeLayout {
     this.title.setText(displayName);
     this.subtitle.setText(null);
     updateSubtitleVisibility();
-    updateVerifiedSubtitleVisibility();
   }
 
   private void updateVerifiedSubtitleVisibility() {
-    verifiedSubtitle.setVisibility(subtitle.getVisibility() != VISIBLE && verified.getVisibility() == VISIBLE ? VISIBLE : GONE);
+    verifiedSubtitle.setVisibility(!isSelf && subtitle.getVisibility() != VISIBLE && verified.getVisibility() == VISIBLE ? VISIBLE : GONE);
   }
 
   private void updateSubtitleVisibility() {
-    subtitle.setVisibility(expirationBadgeContainer.getVisibility() != VISIBLE && !TextUtils.isEmpty(subtitle.getText()) ? VISIBLE : GONE);
+    subtitle.setVisibility(!isSelf && expirationBadgeContainer.getVisibility() != VISIBLE && !TextUtils.isEmpty(subtitle.getText()) ? VISIBLE : GONE);
     updateVerifiedSubtitleVisibility();
   }
 }

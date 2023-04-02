@@ -1,13 +1,13 @@
 package org.signal.qr
 
 import android.content.Context
-import android.os.Build
 import android.util.AttributeSet
 import android.widget.FrameLayout
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.subjects.PublishSubject
+import org.signal.core.util.logging.Log
 
 /**
  * View for starting up a camera and scanning a QR-Code. Safe to use on an API version and
@@ -19,15 +19,15 @@ class QrScannerView @JvmOverloads constructor(
   context: Context,
   attrs: AttributeSet? = null,
   defStyleAttr: Int = 0
-) : FrameLayout(context, attrs, defStyleAttr), ScannerView {
+) : FrameLayout(context, attrs, defStyleAttr) {
 
-  private val scannerView: ScannerView
+  private var scannerView: ScannerView? = null
   private val qrDataPublish: PublishSubject<String> = PublishSubject.create()
 
   val qrData: Observable<String> = qrDataPublish
 
-  init {
-    val scannerView: FrameLayout = if (Build.VERSION.SDK_INT >= 21) {
+  private fun initScannerView(forceLegacy: Boolean) {
+    val scannerView: FrameLayout = if (!forceLegacy) {
       ScannerView21(context) { qrDataPublish.onNext(it) }
     } else {
       ScannerView19(context) { qrDataPublish.onNext(it) }
@@ -39,12 +39,29 @@ class QrScannerView @JvmOverloads constructor(
     this.scannerView = (scannerView as ScannerView)
   }
 
-  override fun start(lifecycleOwner: LifecycleOwner) {
-    scannerView.start(lifecycleOwner)
+  @JvmOverloads
+  fun start(lifecycleOwner: LifecycleOwner, forceLegacy: Boolean = false) {
+    if (scannerView != null) {
+      Log.w(TAG, "Attempt to start scanning that has already started")
+      return
+    }
+
+    initScannerView(forceLegacy)
+
+    scannerView?.start(lifecycleOwner)
     lifecycleOwner.lifecycle.addObserver(object : DefaultLifecycleObserver {
       override fun onDestroy(owner: LifecycleOwner) {
         qrDataPublish.onComplete()
       }
     })
+  }
+
+  fun toggleCamera() {
+    Log.d(TAG, "Toggling camera")
+    scannerView?.toggleCamera()
+  }
+
+  companion object {
+    private val TAG = Log.tag(QrScannerView::class.java)
   }
 }

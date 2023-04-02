@@ -25,7 +25,7 @@ import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.mms.PartAuthority;
 import org.thoughtcrime.securesms.util.MediaUtil;
 import org.signal.core.util.SqlUtil;
-import org.thoughtcrime.securesms.util.Stopwatch;
+import org.signal.core.util.Stopwatch;
 import org.thoughtcrime.securesms.util.StorageUtil;
 import org.thoughtcrime.securesms.util.Util;
 
@@ -308,14 +308,12 @@ public class MediaRepository {
     return media.size() > 0 ? Optional.of(media.get(0)) : Optional.empty();
   }
 
-  @TargetApi(16)
   @SuppressWarnings("SuspiciousNameCombination")
   private String getWidthColumn(int orientation) {
     if (orientation == 0 || orientation == 180) return Images.Media.WIDTH;
     else                                        return Images.Media.HEIGHT;
   }
 
-  @TargetApi(16)
   @SuppressWarnings("SuspiciousNameCombination")
   private String getHeightColumn(int orientation) {
     if (orientation == 0 || orientation == 180) return Images.Media.HEIGHT;

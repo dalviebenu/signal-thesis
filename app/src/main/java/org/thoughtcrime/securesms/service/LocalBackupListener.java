@@ -2,19 +2,22 @@ package org.thoughtcrime.securesms.service;
 
 
 import android.content.Context;
-import android.content.Intent;
 
 import androidx.annotation.NonNull;
 
 import org.thoughtcrime.securesms.jobs.LocalBackupJob;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
+import org.thoughtcrime.securesms.util.JavaTimeExtensionsKt;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 
-import java.util.concurrent.TimeUnit;
+import java.time.LocalDateTime;
 
 public class LocalBackupListener extends PersistentAlarmManagerListener {
 
-  private static final long INTERVAL = TimeUnit.DAYS.toMillis(1);
+  @Override
+  protected boolean shouldScheduleExact() {
+    return true;
+  }
 
   @Override
   protected long getNextScheduledExecutionTime(Context context) {
@@ -32,12 +35,21 @@ public class LocalBackupListener extends PersistentAlarmManagerListener {
 
   public static void schedule(Context context) {
     if (SignalStore.settings().isBackupEnabled()) {
-      new LocalBackupListener().onReceive(context, new Intent());
+      new LocalBackupListener().onReceive(context, getScheduleIntent());
     }
   }
 
   public static long setNextBackupTimeToIntervalFromNow(@NonNull Context context) {
-    long nextTime = System.currentTimeMillis() + INTERVAL;
+    LocalDateTime now    = LocalDateTime.now();
+    int           hour   = SignalStore.settings().getBackupHour();
+    int           minute = SignalStore.settings().getBackupMinute();
+    LocalDateTime next   = now.withHour(hour).withMinute(minute).withSecond(0);
+    if (now.isAfter(next)) {
+      next = next.plusDays(1);
+    }
+
+    long nextTime = JavaTimeExtensionsKt.toMillis(next);
+
     TextSecurePreferences.setNextBackupTime(context, nextTime);
 
     return nextTime;

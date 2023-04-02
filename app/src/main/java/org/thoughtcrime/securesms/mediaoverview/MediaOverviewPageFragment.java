@@ -1,11 +1,13 @@
 package org.thoughtcrime.securesms.mediaoverview;
 
+import android.app.ActivityOptions;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Size;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -27,24 +29,28 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.codewaves.stickyheadergrid.StickyHeaderGridLayoutManager;
 
+import org.signal.core.util.DimensionUnit;
 import org.signal.core.util.logging.Log;
-import org.thoughtcrime.securesms.MediaPreviewActivity;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.components.menu.ActionItem;
 import org.thoughtcrime.securesms.components.menu.SignalBottomActionBar;
 import org.thoughtcrime.securesms.components.voice.VoiceNoteMediaController;
 import org.thoughtcrime.securesms.components.voice.VoiceNotePlaybackState;
-import org.thoughtcrime.securesms.database.MediaDatabase;
+import org.thoughtcrime.securesms.database.MediaTable;
 import org.thoughtcrime.securesms.database.loaders.GroupedThreadMediaLoader;
 import org.thoughtcrime.securesms.database.loaders.MediaLoader;
+import org.thoughtcrime.securesms.mediapreview.MediaIntentFactory;
+import org.thoughtcrime.securesms.mediapreview.MediaPreviewV2Activity;
 import org.thoughtcrime.securesms.mms.GlideApp;
 import org.thoughtcrime.securesms.mms.PartAuthority;
+import org.thoughtcrime.securesms.util.BottomOffsetDecoration;
 import org.thoughtcrime.securesms.util.MediaUtil;
 import org.thoughtcrime.securesms.util.Util;
 import org.thoughtcrime.securesms.util.ViewUtil;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 public final class MediaOverviewPageFragment extends Fragment
   implements MediaGalleryAllAdapter.ItemClickListener,
@@ -58,9 +64,9 @@ public final class MediaOverviewPageFragment extends Fragment
   private static final String MEDIA_TYPE_EXTRA = "media_type";
   private static final String GRID_MODE        = "grid_mode";
 
-  private final ActionModeCallback            actionModeCallback = new ActionModeCallback();
-  private       MediaDatabase.Sorting         sorting            = MediaDatabase.Sorting.Newest;
-  private       MediaLoader.MediaType         mediaType          = MediaLoader.MediaType.GALLERY;
+  private final ActionModeCallback    actionModeCallback = new ActionModeCallback();
+  private       MediaTable.Sorting    sorting            = MediaTable.Sorting.Newest;
+  private       MediaLoader.MediaType mediaType          = MediaLoader.MediaType.GALLERY;
   private       long                          threadId;
   private       TextView                      noMedia;
   private       RecyclerView                  recyclerView;
@@ -125,11 +131,12 @@ public final class MediaOverviewPageFragment extends Fragment
                                               this,
                                               this,
                                               sorting.isRelatedToFileSize(),
-                                              threadId == MediaDatabase.ALL_THREADS);
+                                              threadId == MediaTable.ALL_THREADS);
     this.recyclerView.setAdapter(adapter);
     this.recyclerView.setLayoutManager(gridManager);
     this.recyclerView.setHasFixedSize(true);
     this.recyclerView.addItemDecoration(new MediaGridDividerDecoration(spans, ViewUtil.dpToPx(4), adapter));
+    this.recyclerView.addItemDecoration(new BottomOffsetDecoration(ViewUtil.dpToPx(160)));
 
     MediaOverviewViewModel viewModel = MediaOverviewViewModel.getMediaOverviewViewModel(requireActivity());
 
@@ -193,11 +200,11 @@ public final class MediaOverviewPageFragment extends Fragment
   }
 
   @Override
-  public void onMediaClicked(@NonNull MediaDatabase.MediaRecord mediaRecord) {
+  public void onMediaClicked(@NonNull View view, @NonNull MediaTable.MediaRecord mediaRecord) {
     if (actionMode != null) {
       handleMediaMultiSelectClick(mediaRecord);
     } else {
-      handleMediaPreviewClick(mediaRecord);
+      handleMediaPreviewClick(view, mediaRecord);
     }
   }
 
@@ -210,7 +217,7 @@ public final class MediaOverviewPageFragment extends Fragment
     }
   }
 
-  private void handleMediaMultiSelectClick(@NonNull MediaDatabase.MediaRecord mediaRecord) {
+  private void handleMediaMultiSelectClick(@NonNull MediaTable.MediaRecord mediaRecord) {
     MediaGalleryAllAdapter adapter = getListAdapter();
 
     adapter.toggleSelection(mediaRecord);
@@ -221,7 +228,7 @@ public final class MediaOverviewPageFragment extends Fragment
     }
   }
 
-  private void handleMediaPreviewClick(@NonNull MediaDatabase.MediaRecord mediaRecord) {
+  private void handleMediaPreviewClick(@NonNull View view, @NonNull MediaTable.MediaRecord mediaRecord) {
     if (mediaRecord.getAttachment().getUri() == null) {
       return;
     }
@@ -234,18 +241,31 @@ public final class MediaOverviewPageFragment extends Fragment
     DatabaseAttachment attachment = mediaRecord.getAttachment();
 
     if (MediaUtil.isVideo(attachment) || MediaUtil.isImage(attachment)) {
-      Intent intent = new Intent(context, MediaPreviewActivity.class);
-      intent.putExtra(MediaPreviewActivity.DATE_EXTRA, mediaRecord.getDate());
-      intent.putExtra(MediaPreviewActivity.SIZE_EXTRA, mediaRecord.getAttachment().getSize());
-      intent.putExtra(MediaPreviewActivity.THREAD_ID_EXTRA, threadId);
-      intent.putExtra(MediaPreviewActivity.LEFT_IS_RECENT_EXTRA, true);
-      intent.putExtra(MediaPreviewActivity.HIDE_ALL_MEDIA_EXTRA, true);
-      intent.putExtra(MediaPreviewActivity.SHOW_THREAD_EXTRA, threadId == MediaDatabase.ALL_THREADS);
-      intent.putExtra(MediaPreviewActivity.SORTING_EXTRA, sorting.ordinal());
-      intent.putExtra(MediaPreviewActivity.IS_VIDEO_GIF, attachment.isVideoGif());
-
-      intent.setDataAndType(mediaRecord.getAttachment().getUri(), mediaRecord.getContentType());
-      context.startActivity(intent);
+      MediaIntentFactory.MediaPreviewArgs args = new MediaIntentFactory.MediaPreviewArgs(
+          threadId,
+          mediaRecord.getDate(),
+          Objects.requireNonNull(mediaRecord.getAttachment().getUri()),
+          mediaRecord.getContentType(),
+          mediaRecord.getAttachment().getSize(),
+          mediaRecord.getAttachment().getCaption(),
+          true,
+          true,
+          threadId == MediaTable.ALL_THREADS,
+          true,
+          sorting,
+          attachment.isVideoGif(),
+          new MediaIntentFactory.SharedElementArgs(
+              attachment.getWidth(),
+              attachment.getHeight(),
+              DimensionUnit.DP.toDp(12),
+              DimensionUnit.DP.toDp(12),
+              DimensionUnit.DP.toDp(12),
+              DimensionUnit.DP.toDp(12)
+          ),
+          false);
+      view.setTransitionName(MediaPreviewV2Activity.SHARED_ELEMENT_TRANSITION_NAME);
+      ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(requireActivity(), view, MediaPreviewV2Activity.SHARED_ELEMENT_TRANSITION_NAME);
+      context.startActivity(MediaIntentFactory.create(context, args), options.toBundle());
     } else {
       if (!MediaUtil.isAudio(attachment)) {
         showFileExternally(context, mediaRecord);
@@ -253,7 +273,7 @@ public final class MediaOverviewPageFragment extends Fragment
     }
   }
 
-  private static void showFileExternally(@NonNull Context context, @NonNull MediaDatabase.MediaRecord mediaRecord) {
+  private static void showFileExternally(@NonNull Context context, @NonNull MediaTable.MediaRecord mediaRecord) {
       Uri uri = mediaRecord.getAttachment().getUri();
 
       Intent intent = new Intent(Intent.ACTION_VIEW);
@@ -268,7 +288,7 @@ public final class MediaOverviewPageFragment extends Fragment
     }
 
   @Override
-  public void onMediaLongClicked(MediaDatabase.MediaRecord mediaRecord) {
+  public void onMediaLongClicked(MediaTable.MediaRecord mediaRecord) {
     if (actionMode == null) {
       enterMultiSelect();
     }
@@ -317,13 +337,13 @@ public final class MediaOverviewPageFragment extends Fragment
       int selectionCount = getListAdapter().getSectionCount();
 
       bottomActionBar.setItems(Arrays.asList(
-          new ActionItem(R.drawable.ic_save_24, getResources().getQuantityString(R.plurals.MediaOverviewActivity_save_plural, selectionCount), () -> {
+          new ActionItem(R.drawable.symbol_save_android_24, getResources().getQuantityString(R.plurals.MediaOverviewActivity_save_plural, selectionCount), () -> {
             MediaActions.handleSaveMedia(MediaOverviewPageFragment.this,
                                          getListAdapter().getSelectedMedia(),
                                          this::exitMultiSelect);
           }),
-          new ActionItem(R.drawable.ic_select_24, getString(R.string.MediaOverviewActivity_select_all), this::handleSelectAllMedia),
-          new ActionItem(R.drawable.ic_delete_24, getResources().getQuantityString(R.plurals.MediaOverviewActivity_delete_plural, selectionCount), () -> {
+          new ActionItem(R.drawable.symbol_check_circle_24, getString(R.string.MediaOverviewActivity_select_all), this::handleSelectAllMedia),
+          new ActionItem(R.drawable.symbol_trash_24, getResources().getQuantityString(R.plurals.MediaOverviewActivity_delete_plural, selectionCount), () -> {
             MediaActions.handleDeleteMedia(requireContext(), getListAdapter().getSelectedMedia());
             exitMultiSelect();
           })

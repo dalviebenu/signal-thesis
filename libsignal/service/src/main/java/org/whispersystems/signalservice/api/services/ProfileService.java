@@ -1,12 +1,11 @@
 package org.whispersystems.signalservice.api.services;
 
+import org.signal.libsignal.protocol.IdentityKey;
 import org.signal.libsignal.protocol.util.Pair;
 import org.signal.libsignal.zkgroup.VerificationFailedException;
 import org.signal.libsignal.zkgroup.profiles.ClientZkProfileOperations;
-import org.signal.libsignal.zkgroup.profiles.PniCredential;
-import org.signal.libsignal.zkgroup.profiles.PniCredentialRequestContext;
+import org.signal.libsignal.zkgroup.profiles.ExpiringProfileKeyCredential;
 import org.signal.libsignal.zkgroup.profiles.ProfileKey;
-import org.signal.libsignal.zkgroup.profiles.ProfileKeyCredential;
 import org.signal.libsignal.zkgroup.profiles.ProfileKeyCredentialRequest;
 import org.signal.libsignal.zkgroup.profiles.ProfileKeyCredentialRequestContext;
 import org.signal.libsignal.zkgroup.profiles.ProfileKeyVersion;
@@ -15,13 +14,14 @@ import org.whispersystems.signalservice.api.SignalWebSocket;
 import org.whispersystems.signalservice.api.crypto.UnidentifiedAccess;
 import org.whispersystems.signalservice.api.profiles.ProfileAndCredential;
 import org.whispersystems.signalservice.api.profiles.SignalServiceProfile;
-import org.whispersystems.signalservice.api.push.ACI;
-import org.whispersystems.signalservice.api.push.PNI;
 import org.whispersystems.signalservice.api.push.ServiceId;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.push.exceptions.MalformedResponseException;
 import org.whispersystems.signalservice.internal.ServiceResponse;
 import org.whispersystems.signalservice.internal.ServiceResponseProcessor;
+import org.whispersystems.signalservice.internal.push.IdentityCheckRequest;
+import org.whispersystems.signalservice.internal.push.IdentityCheckRequest.AciFingerprintPair;
+import org.whispersystems.signalservice.internal.push.IdentityCheckResponse;
 import org.whispersystems.signalservice.internal.push.http.AcceptLanguagesUtil;
 import org.whispersystems.signalservice.internal.util.Hex;
 import org.whispersystems.signalservice.internal.util.JsonUtil;
@@ -30,20 +30,25 @@ import org.whispersystems.signalservice.internal.websocket.ResponseMapper;
 import org.whispersystems.signalservice.internal.websocket.WebSocketProtos.WebSocketRequestMessage;
 
 import java.security.SecureRandom;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
-import io.reactivex.rxjava3.core.Scheduler;
+import javax.annotation.Nonnull;
+
+import io.reactivex.rxjava3.annotations.NonNull;
 import io.reactivex.rxjava3.core.Single;
-import io.reactivex.rxjava3.core.SingleSource;
-import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
  * Provide Profile-related API services, encapsulating the logic to make the request, parse the response,
  * and fallback to appropriate WebSocket or RESTful alternatives.
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class ProfileService {
 
   private static final String TAG = ProfileService.class.getSimpleName();
@@ -61,11 +66,11 @@ public final class ProfileService {
     this.signalWebSocket           = signalWebSocket;
   }
 
-  public Single<ServiceResponse<ProfileAndCredential>> getProfile(SignalServiceAddress address,
-                                                                  Optional<ProfileKey> profileKey,
-                                                                  Optional<UnidentifiedAccess> unidentifiedAccess,
-                                                                  SignalServiceProfile.RequestType requestType,
-                                                                  Locale locale)
+  public Single<ServiceResponse<ProfileAndCredential>> getProfile(@Nonnull SignalServiceAddress address,
+                                                                  @Nonnull Optional<ProfileKey> profileKey,
+                                                                  @Nonnull Optional<UnidentifiedAccess> unidentifiedAccess,
+                                                                  @Nonnull SignalServiceProfile.RequestType requestType,
+                                                                  @Nonnull Locale locale)
   {
     ServiceId                          serviceId      = address.getServiceId();
     SecureRandom                       random         = new SecureRandom();
@@ -85,7 +90,7 @@ public final class ProfileService {
         ProfileKeyCredentialRequest request           = requestContext.getRequest();
         String                      credentialRequest = Hex.toStringCondensed(request.serialize());
 
-        builder.setPath(String.format("/v1/profile/%s/%s/%s", serviceId, version, credentialRequest));
+        builder.setPath(String.format("/v1/profile/%s/%s/%s?credentialType=expiringProfileKey", serviceId, version, credentialRequest));
       } else {
         builder.setPath(String.format("/v1/profile/%s/%s", serviceId, version));
       }
@@ -103,53 +108,49 @@ public final class ProfileService {
 
     return signalWebSocket.request(requestMessage, unidentifiedAccess)
                           .map(responseMapper::map)
-                          .onErrorResumeNext(t -> restFallback(address, profileKey, unidentifiedAccess, requestType, locale))
+                          .onErrorResumeNext(t -> getProfileRestFallback(address, profileKey, unidentifiedAccess, requestType, locale))
                           .onErrorReturn(ServiceResponse::forUnknownError);
   }
 
-  private Single<ServiceResponse<ProfileAndCredential>> restFallback(SignalServiceAddress address,
-                                                                     Optional<ProfileKey> profileKey,
-                                                                     Optional<UnidentifiedAccess> unidentifiedAccess,
-                                                                     SignalServiceProfile.RequestType requestType,
-                                                                     Locale locale)
+  public @NonNull Single<ServiceResponse<IdentityCheckResponse>> performIdentityCheck(@Nonnull Map<ServiceId, IdentityKey> aciIdentityKeyMap) {
+    List<AciFingerprintPair> aciKeyPairs = aciIdentityKeyMap.entrySet()
+                                                            .stream()
+                                                            .map(e -> new AciFingerprintPair(e.getKey(), e.getValue()))
+                                                            .collect(Collectors.toList());
+
+    IdentityCheckRequest request = new IdentityCheckRequest(aciKeyPairs);
+
+    WebSocketRequestMessage.Builder builder = WebSocketRequestMessage.newBuilder()
+                                                                     .setId(new SecureRandom().nextLong())
+                                                                     .setVerb("POST")
+                                                                     .setPath("/v1/profile/identity_check/batch")
+                                                                     .addAllHeaders(Collections.singleton("content-type:application/json"))
+                                                                     .setBody(JsonUtil.toJsonByteString(request));
+
+    ResponseMapper<IdentityCheckResponse> responseMapper = DefaultResponseMapper.getDefault(IdentityCheckResponse.class);
+
+    return signalWebSocket.request(builder.build(), Optional.empty())
+                          .map(responseMapper::map)
+                          .onErrorResumeNext(t -> performIdentityCheckRestFallback(request, Optional.empty(), responseMapper))
+                          .onErrorReturn(ServiceResponse::forUnknownError);
+  }
+
+  private Single<ServiceResponse<ProfileAndCredential>> getProfileRestFallback(@Nonnull SignalServiceAddress address,
+                                                                               @Nonnull Optional<ProfileKey> profileKey,
+                                                                               @Nonnull Optional<UnidentifiedAccess> unidentifiedAccess,
+                                                                               @Nonnull SignalServiceProfile.RequestType requestType,
+                                                                               @Nonnull Locale locale)
   {
     return Single.fromFuture(receiver.retrieveProfile(address, profileKey, unidentifiedAccess, requestType, locale), 10, TimeUnit.SECONDS)
                  .onErrorResumeNext(t -> Single.fromFuture(receiver.retrieveProfile(address, profileKey, Optional.empty(), requestType, locale), 10, TimeUnit.SECONDS))
                  .map(p -> ServiceResponse.forResult(p, 0, null));
   }
 
-  public Single<ServiceResponse<PniCredential>> getPniProfileCredential(ACI aci,
-                                                                        PNI pni,
-                                                                        ProfileKey profileKey)
-  {
-    SecureRandom                random               = new SecureRandom();
-    ProfileKeyVersion           profileKeyIdentifier = profileKey.getProfileKeyVersion(aci.uuid());
-    String                      version              = profileKeyIdentifier.serialize();
-    PniCredentialRequestContext requestContext       = clientZkProfileOperations.createPniCredentialRequestContext(random, aci.uuid(), pni.uuid(), profileKey);
-    ProfileKeyCredentialRequest request              = requestContext.getRequest();
-    String                      credentialRequest    = Hex.toStringCondensed(request.serialize());
-
-    WebSocketRequestMessage requestMessage = WebSocketRequestMessage.newBuilder()
-                                                                    .setId(random.nextLong())
-                                                                    .setVerb("GET")
-                                                                    .setPath(String.format("/v1/profile/%s/%s/%s?credentialType=pni", aci.uuid(), version, credentialRequest))
-                                                                    .addHeaders(AcceptLanguagesUtil.getAcceptLanguageHeader(Locale.getDefault()))
-                                                                    .build();
-
-    PniCredentialMapper           pniCredentialMapper = new PniCredentialMapper(requestContext);
-    ResponseMapper<PniCredential> responseMapper      = DefaultResponseMapper.extend(PniCredential.class)
-                                                                             .withResponseMapper(pniCredentialMapper)
-                                                                             .build();
-
-    return signalWebSocket.request(requestMessage, Optional.empty())
-                          .map(responseMapper::map)
-                          .onErrorResumeNext(t -> restFallbackForPni(pniCredentialMapper, aci, version, credentialRequest, Locale.getDefault()))
-                          .onErrorReturn(ServiceResponse::forUnknownError);
-  }
-
-  private Single<ServiceResponse<PniCredential>> restFallbackForPni(PniCredentialMapper responseMapper, ACI aci, String version, String credentialRequest, Locale locale) {
-    return Single.fromFuture(receiver.retrievePniProfile(aci, version, credentialRequest, locale), 10, TimeUnit.SECONDS)
-                 .map(responseMapper::map);
+  private @NonNull Single<ServiceResponse<IdentityCheckResponse>> performIdentityCheckRestFallback(@Nonnull IdentityCheckRequest request,
+                                                                                                   @Nonnull Optional<UnidentifiedAccess> unidentifiedAccess,
+                                                                                                   @Nonnull ResponseMapper<IdentityCheckResponse> responseMapper) {
+    return receiver.performIdentityCheck(request, unidentifiedAccess, responseMapper)
+                   .onErrorResumeNext(t -> receiver.performIdentityCheck(request, Optional.empty(), responseMapper));
   }
 
   /**
@@ -169,51 +170,15 @@ public final class ProfileService {
         throws MalformedResponseException
     {
       try {
-        SignalServiceProfile signalServiceProfile = JsonUtil.fromJsonResponse(body, SignalServiceProfile.class);
-        ProfileKeyCredential profileKeyCredential = null;
-        if (requestContext != null && signalServiceProfile.getProfileKeyCredentialResponse() != null) {
-          profileKeyCredential = clientZkProfileOperations.receiveProfileKeyCredential(requestContext, signalServiceProfile.getProfileKeyCredentialResponse());
+        SignalServiceProfile         signalServiceProfile         = JsonUtil.fromJsonResponse(body, SignalServiceProfile.class);
+        ExpiringProfileKeyCredential expiringProfileKeyCredential = null;
+        if (requestContext != null && signalServiceProfile.getExpiringProfileKeyCredentialResponse() != null) {
+          expiringProfileKeyCredential = clientZkProfileOperations.receiveExpiringProfileKeyCredential(requestContext, signalServiceProfile.getExpiringProfileKeyCredentialResponse());
         }
 
-        return ServiceResponse.forResult(new ProfileAndCredential(signalServiceProfile, requestType, Optional.ofNullable(profileKeyCredential)), status, body);
+        return ServiceResponse.forResult(new ProfileAndCredential(signalServiceProfile, requestType, Optional.ofNullable(expiringProfileKeyCredential)), status, body);
       } catch (VerificationFailedException e) {
         return ServiceResponse.forApplicationError(e, status, body);
-      }
-    }
-  }
-
-  /**
-   * Maps the API {@link SignalServiceProfile} model into the desired {@link org.signal.libsignal.zkgroup.profiles.PniCredential} domain model.
-   */
-  private class PniCredentialMapper implements DefaultResponseMapper.CustomResponseMapper<PniCredential> {
-    private final PniCredentialRequestContext requestContext;
-
-    public PniCredentialMapper(PniCredentialRequestContext requestContext) {
-      this.requestContext = requestContext;
-    }
-
-    @Override
-    public ServiceResponse<PniCredential> map(int status, String body, Function<String, String> getHeader, boolean unidentified)
-        throws MalformedResponseException
-    {
-      SignalServiceProfile signalServiceProfile = JsonUtil.fromJsonResponse(body, SignalServiceProfile.class);
-      return map(signalServiceProfile);
-    }
-
-    public ServiceResponse<PniCredential> map(SignalServiceProfile signalServiceProfile) {
-      try {
-        PniCredential pniCredential = null;
-        if (requestContext != null && signalServiceProfile.getPniCredentialResponse() != null) {
-          pniCredential = clientZkProfileOperations.receivePniCredential(requestContext, signalServiceProfile.getPniCredentialResponse());
-        }
-
-        if (pniCredential == null) {
-          return ServiceResponse.forApplicationError(new MalformedResponseException("No PNI credential in response"), 0, null);
-        } else {
-          return ServiceResponse.forResult(pniCredential, 200, null);
-        }
-      } catch (VerificationFailedException e) {
-        return ServiceResponse.forUnknownError(e);
       }
     }
   }
@@ -238,6 +203,11 @@ public final class ProfileService {
     @Override
     public boolean genericIoError() {
       return super.genericIoError();
+    }
+
+    @Override
+    public Throwable getError() {
+      return super.getError();
     }
   }
 }

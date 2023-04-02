@@ -10,6 +10,7 @@ import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.util.OptionalUtil;
 import org.whispersystems.signalservice.api.util.ProtoUtil;
 import org.whispersystems.signalservice.internal.storage.protos.AccountRecord;
+import org.whispersystems.signalservice.internal.storage.protos.OptionalBool;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,6 +18,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+
+import javax.annotation.Nullable;
 
 public final class SignalAccountRecord implements SignalRecord {
 
@@ -166,6 +169,38 @@ public final class SignalAccountRecord implements SignalRecord {
         diff.add("SubscriptionManuallyCancelled");
       }
 
+      if (isKeepMutedChatsArchived() != that.isKeepMutedChatsArchived()) {
+        diff.add("KeepMutedChatsArchived");
+      }
+
+      if (hasSetMyStoriesPrivacy() != that.hasSetMyStoriesPrivacy()) {
+        diff.add("HasSetMyStoryPrivacy");
+      }
+
+      if (hasViewedOnboardingStory() != that.hasViewedOnboardingStory()) {
+        diff.add("HasViewedOnboardingStory");
+      }
+
+      if (isStoriesDisabled() != that.isStoriesDisabled()) {
+        diff.add("StoriesDisabled");
+      }
+
+      if (getStoryViewReceiptsState() != that.getStoryViewReceiptsState()) {
+        diff.add("StoryViewedReceipts");
+      }
+
+      if (hasReadOnboardingStory() != that.hasReadOnboardingStory()) {
+        diff.add("HasReadOnboardingStory");
+      }
+
+      if (hasSeenGroupStoryEducationSheet() != that.hasSeenGroupStoryEducationSheet()) {
+        diff.add("HasSeenGroupStoryEducationSheet");
+      }
+
+      if (!Objects.equals(getUsername(), that.getUsername())) {
+        diff.add("Username");
+      }
+
       return diff.toString();
     } else {
       return "Different class. " + getClass().getSimpleName() + " | " + other.getClass().getSimpleName();
@@ -268,7 +303,39 @@ public final class SignalAccountRecord implements SignalRecord {
     return proto.getSubscriptionManuallyCancelled();
   }
 
-  AccountRecord toProto() {
+  public boolean isKeepMutedChatsArchived() {
+    return proto.getKeepMutedChatsArchived();
+  }
+
+  public boolean hasSetMyStoriesPrivacy() {
+    return proto.getHasSetMyStoriesPrivacy();
+  }
+
+  public boolean hasViewedOnboardingStory() {
+    return proto.getHasViewedOnboardingStory();
+  }
+
+  public boolean isStoriesDisabled() {
+    return proto.getStoriesDisabled();
+  }
+
+  public OptionalBool getStoryViewReceiptsState() {
+    return proto.getStoryViewReceiptsEnabled();
+  }
+
+  public boolean hasReadOnboardingStory() {
+    return proto.getHasReadOnboardingStory();
+  }
+
+  public boolean hasSeenGroupStoryEducationSheet() {
+    return proto.getHasSeenGroupStoryEducationSheet();
+  }
+
+  public @Nullable String getUsername() {
+    return proto.getUsername();
+  }
+
+  public AccountRecord toProto() {
     return proto;
   }
 
@@ -602,6 +669,51 @@ public final class SignalAccountRecord implements SignalRecord {
 
     public Builder setSubscriptionManuallyCancelled(boolean subscriptionManuallyCancelled) {
       builder.setSubscriptionManuallyCancelled(subscriptionManuallyCancelled);
+      return this;
+    }
+
+    public Builder setKeepMutedChatsArchived(boolean keepMutedChatsArchived) {
+      builder.setKeepMutedChatsArchived(keepMutedChatsArchived);
+      return this;
+    }
+
+    public Builder setHasSetMyStoriesPrivacy(boolean hasSetMyStoriesPrivacy) {
+      builder.setHasSetMyStoriesPrivacy(hasSetMyStoriesPrivacy);
+      return this;
+    }
+
+    public Builder setHasViewedOnboardingStory(boolean hasViewedOnboardingStory) {
+      builder.setHasViewedOnboardingStory(hasViewedOnboardingStory);
+      return this;
+    }
+
+    public Builder setStoriesDisabled(boolean storiesDisabled) {
+      builder.setStoriesDisabled(storiesDisabled);
+      return this;
+    }
+
+    public Builder setStoryViewReceiptsState(OptionalBool storyViewedReceiptsEnabled) {
+      builder.setStoryViewReceiptsEnabled(storyViewedReceiptsEnabled);
+      return this;
+    }
+
+    public Builder setHasReadOnboardingStory(boolean hasReadOnboardingStory) {
+      builder.setHasReadOnboardingStory(hasReadOnboardingStory);
+      return this;
+    }
+
+    public Builder setHasSeenGroupStoryEducationSheet(boolean hasSeenGroupStoryEducationSheet) {
+      builder.setHasSeenGroupStoryEducationSheet(hasSeenGroupStoryEducationSheet);
+      return this;
+    }
+
+    public Builder setUsername(@Nullable String username) {
+      if (username == null || username.isEmpty()) {
+        builder.clearUsername();
+      } else {
+        builder.setUsername(username);
+      }
+
       return this;
     }
 

@@ -11,24 +11,23 @@ import androidx.appcompat.widget.Toolbar
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.fragment.findNavController
-import com.dd.CircularProgressButton
 import com.google.android.material.textfield.TextInputLayout
 import io.reactivex.rxjava3.kotlin.subscribeBy
 import org.signal.core.util.BreakIteratorCompat
 import org.signal.core.util.EditTextUtil
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.emoji.EmojiUtil
-import org.thoughtcrime.securesms.components.settings.DSLSettingsAdapter
 import org.thoughtcrime.securesms.components.settings.DSLSettingsFragment
 import org.thoughtcrime.securesms.components.settings.app.notifications.profiles.EditNotificationProfileViewModel.SaveNotificationProfileResult
 import org.thoughtcrime.securesms.components.settings.app.notifications.profiles.models.NotificationProfileNamePreset
 import org.thoughtcrime.securesms.reactions.any.ReactWithAnyEmojiBottomSheetDialogFragment
 import org.thoughtcrime.securesms.util.BottomSheetUtil
-import org.thoughtcrime.securesms.util.CircularProgressButtonUtil
 import org.thoughtcrime.securesms.util.LifecycleDisposable
 import org.thoughtcrime.securesms.util.ViewUtil
+import org.thoughtcrime.securesms.util.adapter.mapping.MappingAdapter
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
 import org.thoughtcrime.securesms.util.text.AfterTextChanged
+import org.thoughtcrime.securesms.util.views.CircularProgressMaterialButton
 
 /**
  * Dual use Edit/Create notification profile fragment. Use to create in the create profile flow,
@@ -58,7 +57,7 @@ class EditNotificationProfileFragment : DSLSettingsFragment(layoutId = R.layout.
 
     val title: TextView = view.findViewById(R.id.edit_notification_profile_title)
     val countView: TextView = view.findViewById(R.id.edit_notification_profile_count)
-    val saveButton: CircularProgressButton = view.findViewById(R.id.edit_notification_profile_save)
+    val saveButton: CircularProgressMaterialButton = view.findViewById(R.id.edit_notification_profile_save)
     val emojiView: ImageView = view.findViewById(R.id.edit_notification_profile_emoji)
     val nameView: EditText = view.findViewById(R.id.edit_notification_profile_name)
     val nameTextWrapper: TextInputLayout = view.findViewById(R.id.edit_notification_profile_name_wrapper)
@@ -90,8 +89,8 @@ class EditNotificationProfileFragment : DSLSettingsFragment(layoutId = R.layout.
       }
 
       lifecycleDisposable += viewModel.save(nameView.text.toString())
-        .doOnSubscribe { CircularProgressButtonUtil.setSpinning(saveButton) }
-        .doAfterTerminate { CircularProgressButtonUtil.cancelSpinning(saveButton) }
+        .doOnSubscribe { saveButton.setSpinning() }
+        .doAfterTerminate { saveButton.cancelSpinning() }
         .subscribeBy(
           onSuccess = { saveResult ->
             when (saveResult) {
@@ -132,7 +131,7 @@ class EditNotificationProfileFragment : DSLSettingsFragment(layoutId = R.layout.
     this.emojiView = emojiView
   }
 
-  override fun bindAdapter(adapter: DSLSettingsAdapter) {
+  override fun bindAdapter(adapter: MappingAdapter) {
     NotificationProfileNamePreset.register(adapter)
 
     val onClick = { preset: NotificationProfileNamePreset.Model ->
@@ -149,7 +148,7 @@ class EditNotificationProfileFragment : DSLSettingsFragment(layoutId = R.layout.
         NotificationProfileNamePreset.Model("\uD83D\uDE34", R.string.EditNotificationProfileFragment__sleep, onClick),
         NotificationProfileNamePreset.Model("\uD83D\uDE97", R.string.EditNotificationProfileFragment__driving, onClick),
         NotificationProfileNamePreset.Model("\uD83D\uDE0A", R.string.EditNotificationProfileFragment__downtime, onClick),
-        NotificationProfileNamePreset.Model("\uD83D\uDCA1", R.string.EditNotificationProfileFragment__focus, onClick),
+        NotificationProfileNamePreset.Model("\uD83D\uDCA1", R.string.EditNotificationProfileFragment__focus, onClick)
       )
     )
   }
@@ -179,7 +178,7 @@ class EditNotificationProfileFragment : DSLSettingsFragment(layoutId = R.layout.
       emojiView?.setImageDrawable(drawable)
       viewModel.onEmojiSelected(emoji)
     } else {
-      emojiView?.setImageResource(R.drawable.ic_add_emoji)
+      emojiView?.setImageResource(R.drawable.symbol_emoji_plus_24)
       viewModel.onEmojiSelected("")
     }
   }

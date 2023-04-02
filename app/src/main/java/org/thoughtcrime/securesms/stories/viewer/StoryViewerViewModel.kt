@@ -5,17 +5,22 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.reactivex.rxjava3.core.Flowable
+import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.core.Single
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.kotlin.plusAssign
+import io.reactivex.rxjava3.subjects.BehaviorSubject
+import org.thoughtcrime.securesms.database.model.MmsMessageRecord
 import org.thoughtcrime.securesms.recipients.RecipientId
+import org.thoughtcrime.securesms.stories.Stories
 import org.thoughtcrime.securesms.stories.StoryViewerArgs
+import org.thoughtcrime.securesms.util.FeatureFlags
 import org.thoughtcrime.securesms.util.rx.RxStore
 import kotlin.math.max
 
 class StoryViewerViewModel(
   private val storyViewerArgs: StoryViewerArgs,
-  private val repository: StoryViewerRepository,
+  private val repository: StoryViewerRepository
 ) : ViewModel() {
 
   private val store = RxStore(
@@ -24,7 +29,8 @@ class StoryViewerViewModel(
         storyViewerArgs.storyThumbTextModel != null -> StoryViewerState.CrossfadeSource.TextModel(storyViewerArgs.storyThumbTextModel)
         storyViewerArgs.storyThumbUri != null -> StoryViewerState.CrossfadeSource.ImageUri(storyViewerArgs.storyThumbUri, storyViewerArgs.storyThumbBlur)
         else -> StoryViewerState.CrossfadeSource.None
-      }
+      },
+      skipCrossfade = storyViewerArgs.isFromNotification || storyViewerArgs.isFromQuote
     )
   )
 
@@ -33,17 +39,40 @@ class StoryViewerViewModel(
   val stateSnapshot: StoryViewerState get() = store.state
   val state: Flowable<StoryViewerState> = store.stateFlowable
 
+  private val hidden = mutableSetOf<RecipientId>()
+
   private val scrollStatePublisher: MutableLiveData<Boolean> = MutableLiveData(false)
   val isScrolling: LiveData<Boolean> = scrollStatePublisher
 
-  private val childScrollStatePublisher: MutableLiveData<Boolean> = MutableLiveData(false)
-  val isChildScrolling: LiveData<Boolean> = childScrollStatePublisher
+  private val childScrollStatePublisher: BehaviorSubject<Boolean> = BehaviorSubject.createDefault(false)
+  val allowParentScrolling: Observable<Boolean> = Observable.combineLatest(
+    childScrollStatePublisher.distinctUntilChanged(),
+    state.toObservable().map { it.loadState.isReady() }.distinctUntilChanged()
+  ) { a, b -> !a && b }
 
   var hasConsumedInitialState = false
     private set
 
-  init {
+  private val firstTimeNavigationPublisher: BehaviorSubject<Boolean> = BehaviorSubject.createDefault(false)
+
+  val isChildScrolling: Observable<Boolean> = childScrollStatePublisher.distinctUntilChanged()
+  val isFirstTimeNavigationShowing: Observable<Boolean> = firstTimeNavigationPublisher.distinctUntilChanged()
+
+  fun addHiddenAndRefresh(hidden: Set<RecipientId>) {
+    this.hidden.addAll(hidden)
     refresh()
+  }
+
+  fun setIsDisplayingFirstTimeNavigation(isDisplayingFirstTimeNavigation: Boolean) {
+    firstTimeNavigationPublisher.onNext(isDisplayingFirstTimeNavigation)
+  }
+
+  fun getHidden(): Set<RecipientId> = hidden
+
+  fun setCrossfadeTarget(messageRecord: MmsMessageRecord) {
+    store.update {
+      it.copy(crossfadeTarget = StoryViewerState.CrossfadeTarget.Record(messageRecord))
+    }
   }
 
   fun consumeInitialState() {
@@ -56,9 +85,9 @@ class StoryViewerViewModel(
     }
   }
 
-  fun setCrossfaderIsReady() {
+  fun setCrossfaderIsReady(isReady: Boolean) {
     store.update {
-      it.copy(loadState = it.loadState.copy(isCrossfaderReady = true))
+      it.copy(loadState = it.loadState.copy(isCrossfaderReady = isReady))
     }
   }
 
@@ -68,14 +97,24 @@ class StoryViewerViewModel(
 
   private fun getStories(): Single<List<RecipientId>> {
     return if (storyViewerArgs.recipientIds.isNotEmpty()) {
-      Single.just(storyViewerArgs.recipientIds)
+      Single.just(storyViewerArgs.recipientIds - hidden)
     } else {
-      repository.getStories(storyViewerArgs.isInHiddenStoryMode)
+      repository.getStories(
+        hiddenStories = storyViewerArgs.isInHiddenStoryMode,
+        isOutgoingOnly = storyViewerArgs.isFromMyStories
+      )
     }
   }
 
-  private fun refresh() {
+  fun refresh() {
     disposables.clear()
+    disposables += repository.getFirstStory(storyViewerArgs.recipientId, storyViewerArgs.storyId).subscribe { record ->
+      store.update {
+        it.copy(
+          crossfadeTarget = StoryViewerState.CrossfadeTarget.Record(record)
+        )
+      }
+    }
     disposables += getStories().subscribe { recipientIds ->
       store.update {
         val page: Int = if (it.pages.isNotEmpty()) {
@@ -91,13 +130,27 @@ class StoryViewerViewModel(
         } else {
           it.page
         }
-        updatePages(it.copy(pages = recipientIds), page)
+        updatePages(it.copy(pages = recipientIds), page).copy(noPosts = recipientIds.isEmpty())
       }
     }
+    disposables += state
+      .map {
+        if ((it.page + 1) in it.pages.indices) {
+          it.pages[it.page + 1]
+        } else {
+          RecipientId.UNKNOWN
+        }
+      }
+      .filter { it != RecipientId.UNKNOWN }
+      .distinctUntilChanged()
+      .subscribe {
+        Stories.enqueueNextStoriesForDownload(it, true, FeatureFlags.storiesAutoDownloadMaximum())
+      }
   }
 
   override fun onCleared() {
     disposables.clear()
+    store.dispose()
   }
 
   fun setSelectedPage(page: Int) {
@@ -124,10 +177,6 @@ class StoryViewerViewModel(
         it
       }
     }
-  }
-
-  fun onRecipientHidden() {
-    refresh()
   }
 
   private fun updatePages(state: StoryViewerState, page: Int): StoryViewerState {
@@ -158,7 +207,7 @@ class StoryViewerViewModel(
   }
 
   fun setIsChildScrolling(isChildScrolling: Boolean) {
-    childScrollStatePublisher.value = isChildScrolling
+    childScrollStatePublisher.onNext(isChildScrolling)
   }
 
   class Factory(

@@ -12,7 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentManager;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
@@ -21,6 +21,7 @@ import org.thoughtcrime.securesms.groups.ui.GroupMemberListView;
 import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.thoughtcrime.securesms.util.BottomSheetUtil;
 import org.thoughtcrime.securesms.util.ThemeUtil;
+import org.thoughtcrime.securesms.util.WindowUtil;
 import org.thoughtcrime.securesms.util.views.SimpleProgressDialog;
 
 /**
@@ -86,12 +87,18 @@ public final class GroupsV1MigrationInitiationBottomSheetDialogFragment extends 
     RecipientId groupRecipientId = getArguments().getParcelable(KEY_GROUP_RECIPIENT_ID);
 
     //noinspection ConstantConditions
-    viewModel = ViewModelProviders.of(this, new GroupsV1MigrationInitiationViewModel.Factory(groupRecipientId)).get(GroupsV1MigrationInitiationViewModel.class);
+    viewModel = new ViewModelProvider(this, new GroupsV1MigrationInitiationViewModel.Factory(groupRecipientId)).get(GroupsV1MigrationInitiationViewModel.class);
     viewModel.getMigrationState().observe(getViewLifecycleOwner(), this::onMigrationStateChanged);
 
     upgradeButton.setEnabled(false);
     upgradeButton.setOnClickListener(v -> onUpgradeClicked());
     view.findViewById(R.id.gv1_migrate_cancel_button).setOnClickListener(v -> dismiss());
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    WindowUtil.initializeScreenshotSecurity(requireContext(), requireDialog().getWindow());
   }
 
   @Override

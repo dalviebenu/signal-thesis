@@ -1,9 +1,9 @@
 package org.thoughtcrime.securesms.components.menu
 
-import android.os.Build
 import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.thoughtcrime.securesms.R
@@ -65,7 +65,7 @@ class ContextMenuList(recyclerView: RecyclerView, onItemClick: () -> Unit) {
 
   private class ItemViewHolder(
     itemView: View,
-    private val onItemClick: () -> Unit,
+    private val onItemClick: () -> Unit
   ) : MappingViewHolder<DisplayItem>(itemView) {
     val icon: ImageView = itemView.findViewById(R.id.signal_context_menu_item_icon)
     val title: TextView = itemView.findViewById(R.id.signal_context_menu_item_title)
@@ -78,13 +78,15 @@ class ContextMenuList(recyclerView: RecyclerView, onItemClick: () -> Unit) {
         onItemClick()
       }
 
-      if (Build.VERSION.SDK_INT >= 21) {
-        when (model.displayType) {
-          DisplayType.TOP -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_top)
-          DisplayType.BOTTOM -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_bottom)
-          DisplayType.MIDDLE -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_middle)
-          DisplayType.ONLY -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_only)
-        }
+      val tintColor = ContextCompat.getColor(context, model.item.tintRes)
+      icon.setColorFilter(tintColor)
+      title.setTextColor(tintColor)
+
+      when (model.displayType) {
+        DisplayType.TOP -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_top)
+        DisplayType.BOTTOM -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_bottom)
+        DisplayType.MIDDLE -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_middle)
+        DisplayType.ONLY -> itemView.setBackgroundResource(R.drawable.signal_context_menu_item_background_only)
       }
     }
   }

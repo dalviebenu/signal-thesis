@@ -9,10 +9,9 @@ import androidx.annotation.WorkerThread;
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.groups.BadGroupIdException;
 import org.thoughtcrime.securesms.groups.GroupChangeBusyException;
 import org.thoughtcrime.securesms.groups.GroupId;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.messages.MessageContentProcessor;
@@ -24,7 +23,7 @@ import org.thoughtcrime.securesms.util.Base64;
 import org.thoughtcrime.securesms.util.GroupUtil;
 import org.whispersystems.signalservice.api.groupsv2.NoCredentialForRedemptionTimeException;
 import org.whispersystems.signalservice.api.messages.SignalServiceContent;
-import org.whispersystems.signalservice.api.messages.SignalServiceGroupContext;
+import org.whispersystems.signalservice.api.messages.SignalServiceGroupV2;
 import org.whispersystems.signalservice.api.push.exceptions.PushNetworkException;
 
 import java.io.IOException;
@@ -51,31 +50,6 @@ public final class PushProcessMessageJob extends BaseJob {
   @Nullable private final ExceptionMetadata    exceptionMetadata;
             private final long                 smsMessageId;
             private final long                 timestamp;
-
-  @WorkerThread
-  PushProcessMessageJob(@NonNull SignalServiceContent content,
-                        long smsMessageId,
-                        long timestamp)
-  {
-    this(MessageState.DECRYPTED_OK,
-         content,
-         null,
-         smsMessageId,
-         timestamp);
-  }
-
-  @WorkerThread
-  PushProcessMessageJob(@NonNull MessageState messageState,
-                        @NonNull ExceptionMetadata exceptionMetadata,
-                        long smsMessageId,
-                        long timestamp)
-  {
-    this(messageState,
-         null,
-         exceptionMetadata,
-         smsMessageId,
-         timestamp);
-  }
 
   @WorkerThread
   public PushProcessMessageJob(@NonNull MessageState messageState,
@@ -120,35 +94,31 @@ public final class PushProcessMessageJob extends BaseJob {
                                                  .setMaxAttempts(Parameters.UNLIMITED);
 
     if (content != null) {
-      SignalServiceGroupContext signalServiceGroupContext = GroupUtil.getGroupContextIfPresent(content);
+      SignalServiceGroupV2 signalServiceGroupContext = GroupUtil.getGroupContextIfPresent(content);
 
       if (signalServiceGroupContext != null) {
-        try {
-          GroupId groupId = GroupUtil.idFromGroupContext(signalServiceGroupContext);
+        GroupId groupId = GroupId.v2(signalServiceGroupContext.getMasterKey());
 
-          queueName = getQueueName(Recipient.externalPossiblyMigratedGroup(context, groupId).getId());
+        queueName = getQueueName(Recipient.externalPossiblyMigratedGroup(groupId).getId());
 
-          if (groupId.isV2()) {
-            int localRevision = SignalDatabase.groups().getGroupV2Revision(groupId.requireV2());
+        if (groupId.isV2()) {
+          int localRevision = SignalDatabase.groups().getGroupV2Revision(groupId.requireV2());
 
-            if (signalServiceGroupContext.getGroupV2().get().getRevision() > localRevision ||
-                SignalDatabase.groups().getGroupV1ByExpectedV2(groupId.requireV2()).isPresent())
-            {
-              Log.i(TAG, "Adding network constraint to group-related job.");
-              builder.addConstraint(NetworkConstraint.KEY)
-                     .setLifespan(TimeUnit.DAYS.toMillis(30));
-            }
+          if (signalServiceGroupContext.getRevision() > localRevision ||
+              SignalDatabase.groups().getGroupV1ByExpectedV2(groupId.requireV2()).isPresent())
+          {
+            Log.i(TAG, "Adding network constraint to group-related job.");
+            builder.addConstraint(NetworkConstraint.KEY)
+                   .setLifespan(TimeUnit.DAYS.toMillis(30));
           }
-        } catch (BadGroupIdException e) {
-          Log.w(TAG, "Bad groupId! Using default queue. ID: " + content.getTimestamp());
         }
       } else if (content.getSyncMessage().isPresent() && content.getSyncMessage().get().getSent().isPresent() && content.getSyncMessage().get().getSent().get().getDestination().isPresent()) {
-        queueName = getQueueName(RecipientId.fromHighTrust(content.getSyncMessage().get().getSent().get().getDestination().get()));
+        queueName = getQueueName(RecipientId.from(content.getSyncMessage().get().getSent().get().getDestination().get()));
       } else {
-        queueName = getQueueName(RecipientId.fromHighTrust(content.getSender()));
+        queueName = getQueueName(RecipientId.from(content.getSender()));
       }
     } else if (exceptionMetadata != null) {
-      Recipient recipient = exceptionMetadata.getGroupId() != null ? Recipient.externalPossiblyMigratedGroup(context, exceptionMetadata.getGroupId())
+      Recipient recipient = exceptionMetadata.getGroupId() != null ? Recipient.externalPossiblyMigratedGroup(exceptionMetadata.getGroupId())
                                                                    : Recipient.external(context, exceptionMetadata.getSender());
       queueName = getQueueName(recipient.getId());
     }
@@ -164,8 +134,8 @@ public final class PushProcessMessageJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    Data.Builder dataBuilder = new Data.Builder()
+  public @Nullable byte[] serialize() {
+    JsonJobData.Builder dataBuilder = new JsonJobData.Builder()
                                        .putInt(KEY_MESSAGE_STATE, messageState.ordinal())
                                        .putLong(KEY_SMS_MESSAGE_ID, smsMessageId)
                                        .putLong(KEY_TIMESTAMP, timestamp);
@@ -179,7 +149,7 @@ public final class PushProcessMessageJob extends BaseJob {
                  .putString(KEY_EXCEPTION_GROUP_ID, exceptionMetadata.getGroupId() == null ? null : exceptionMetadata.getGroupId().toString());
     }
 
-    return dataBuilder.build();
+    return dataBuilder.serialize();
   }
 
   @Override
@@ -189,7 +159,7 @@ public final class PushProcessMessageJob extends BaseJob {
 
   @Override
   public void onRun() throws Exception {
-    MessageContentProcessor processor = MessageContentProcessor.forNormalContent(context);
+    MessageContentProcessor processor = MessageContentProcessor.create(context);
     processor.process(messageState, content, exceptionMetadata, timestamp, smsMessageId);
   }
 
@@ -206,7 +176,9 @@ public final class PushProcessMessageJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<PushProcessMessageJob> {
     @Override
-    public @NonNull PushProcessMessageJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull PushProcessMessageJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       try {
         MessageState state = MessageState.values()[data.getInt(KEY_MESSAGE_STATE)];
 

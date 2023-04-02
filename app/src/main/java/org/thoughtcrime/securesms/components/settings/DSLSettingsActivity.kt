@@ -10,6 +10,10 @@ import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme
 import org.thoughtcrime.securesms.util.DynamicTheme
 
+/**
+ * The DSL API can be completely replaced by compose.
+ * See ComposeFragment or ComposeBottomSheetFragment for an alternative to this API"
+ */
 open class DSLSettingsActivity : PassphraseRequiredActivity() {
 
   protected open val dynamicTheme: DynamicTheme = DynamicNoActionBarTheme()

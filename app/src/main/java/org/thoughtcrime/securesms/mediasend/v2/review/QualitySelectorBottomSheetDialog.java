@@ -10,7 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentManager;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
@@ -19,6 +19,7 @@ import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionState;
 import org.thoughtcrime.securesms.mediasend.v2.MediaSelectionViewModel;
 import org.thoughtcrime.securesms.mms.SentMediaQuality;
 import org.thoughtcrime.securesms.util.BottomSheetUtil;
+import org.thoughtcrime.securesms.util.WindowUtil;
 import org.thoughtcrime.securesms.util.views.CheckedLinearLayout;
 
 /**
@@ -63,8 +64,14 @@ public final class QualitySelectorBottomSheetDialog extends BottomSheetDialogFra
     standard.setOnClickListener(listener);
     high.setOnClickListener(listener);
 
-    viewModel = ViewModelProviders.of(requireActivity()).get(MediaSelectionViewModel.class);
+    viewModel = new ViewModelProvider(requireActivity()).get(MediaSelectionViewModel.class);
     viewModel.getState().observe(getViewLifecycleOwner(), this::updateQuality);
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    WindowUtil.initializeScreenshotSecurity(requireContext(), requireDialog().getWindow());
   }
 
   private void updateQuality(@NonNull MediaSelectionState selectionState) {

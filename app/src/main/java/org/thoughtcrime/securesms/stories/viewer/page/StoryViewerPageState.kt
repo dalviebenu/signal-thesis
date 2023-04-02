@@ -5,7 +5,9 @@ data class StoryViewerPageState(
   val selectedPostIndex: Int = 0,
   val replyState: ReplyState = ReplyState.NONE,
   val isFirstPage: Boolean = false,
-  val isDisplayingInitialState: Boolean = false
+  val isDisplayingInitialState: Boolean = false,
+  val isReady: Boolean = false,
+  val isReceiptsEnabled: Boolean
 ) {
   /**
    * Indicates which Reply method is available when the user swipes on the dialog
@@ -34,7 +36,22 @@ data class StoryViewerPageState(
     /**
      * Story is from self and in a group
      */
-    GROUP_SELF;
+    GROUP_SELF,
+
+    /**
+     * Story was not sent to all recipients.
+     */
+    PARTIAL_SEND,
+
+    /**
+     * Story failed to send.
+     */
+    SEND_FAILURE,
+
+    /**
+     * Story is currently being sent.
+     */
+    SENDING;
 
     companion object {
       fun resolve(isFromSelf: Boolean, isToGroup: Boolean): ReplyState {

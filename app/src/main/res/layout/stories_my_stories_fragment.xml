@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    tools:viewBindingIgnore="true"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -14,8 +15,8 @@
         android:layout_marginHorizontal="68dp"
         android:gravity="center"
         android:text="@string/MyStoriesFragment__updates_to_your_story_will_show_up_here"
-        android:textAppearance="@style/Signal.Text.Body"
-        android:textColor="@color/signal_text_secondary"
+        android:textAppearance="@style/Signal.Text.BodyLarge"
+        android:textColor="@color/signal_colorOutline"
         android:visibility="gone"
         app:layout_constrainedWidth="true"
         app:layout_constraintBottom_toBottomOf="parent"

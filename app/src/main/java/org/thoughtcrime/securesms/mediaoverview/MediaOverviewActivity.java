@@ -34,6 +34,7 @@ import androidx.viewpager.widget.ViewPager;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.transition.platform.MaterialContainerTransformSharedElementCallback;
 
 import org.signal.libsignal.protocol.util.Pair;
 import org.thoughtcrime.securesms.PassphraseRequiredActivity;
@@ -41,8 +42,8 @@ import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.components.AnimatingToggle;
 import org.thoughtcrime.securesms.components.BoldSelectionTabItem;
 import org.thoughtcrime.securesms.components.ControllableTabLayout;
-import org.thoughtcrime.securesms.database.MediaDatabase;
-import org.thoughtcrime.securesms.database.MediaDatabase.Sorting;
+import org.thoughtcrime.securesms.database.MediaTable;
+import org.thoughtcrime.securesms.database.MediaTable.Sorting;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.database.loaders.MediaLoader;
 import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme;
@@ -81,7 +82,7 @@ public final class MediaOverviewActivity extends PassphraseRequiredActivity {
   }
 
   public static Intent forAll(@NonNull Context context) {
-    return forThread(context, MediaDatabase.ALL_THREADS);
+    return forThread(context, MediaTable.ALL_THREADS);
   }
 
   @Override
@@ -91,12 +92,13 @@ public final class MediaOverviewActivity extends PassphraseRequiredActivity {
 
   @Override
   protected void onCreate(Bundle bundle, boolean ready) {
+    setExitSharedElementCallback(new MaterialContainerTransformSharedElementCallback());
     setContentView(R.layout.media_overview_activity);
 
     initializeResources();
     initializeToolbar();
 
-    boolean allThreads = threadId == MediaDatabase.ALL_THREADS;
+    boolean allThreads = threadId == MediaTable.ALL_THREADS;
 
     BoldSelectionTabItem.registerListeners(tabLayout);
     fillTabLayoutIfFits(tabLayout);
@@ -196,7 +198,7 @@ public final class MediaOverviewActivity extends PassphraseRequiredActivity {
     setSupportActionBar(toolbar);
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
-    if (threadId == MediaDatabase.ALL_THREADS) {
+    if (threadId == MediaTable.ALL_THREADS) {
       getSupportActionBar().setTitle(R.string.MediaOverviewActivity_All_storage_use);
     } else {
       SimpleTask.run(() -> SignalDatabase.threads().getRecipientForThreadId(threadId),
@@ -213,11 +215,13 @@ public final class MediaOverviewActivity extends PassphraseRequiredActivity {
   public void onEnterMultiSelect() {
     tabLayout.setEnabled(false);
     viewPager.setEnabled(false);
+    toolbar.setVisibility(View.INVISIBLE);
   }
 
   public void onExitMultiSelect() {
     tabLayout.setEnabled(true);
     viewPager.setEnabled(true);
+    toolbar.setVisibility(View.VISIBLE);
   }
 
   private void showSortOrderDialog(View v) {

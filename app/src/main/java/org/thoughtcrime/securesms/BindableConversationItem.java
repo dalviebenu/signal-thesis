@@ -10,6 +10,8 @@ import androidx.lifecycle.Observer;
 
 import org.thoughtcrime.securesms.components.voice.VoiceNotePlaybackState;
 import org.thoughtcrime.securesms.contactshare.Contact;
+import org.thoughtcrime.securesms.conversation.ConversationItem;
+import org.thoughtcrime.securesms.conversation.ConversationItemDisplayMode;
 import org.thoughtcrime.securesms.conversation.ConversationMessage;
 import org.thoughtcrime.securesms.conversation.colors.Colorizable;
 import org.thoughtcrime.securesms.conversation.colors.Colorizer;
@@ -22,6 +24,7 @@ import org.thoughtcrime.securesms.giph.mp4.GiphyMp4Playable;
 import org.thoughtcrime.securesms.groups.GroupId;
 import org.thoughtcrime.securesms.groups.GroupMigrationMembershipChange;
 import org.thoughtcrime.securesms.linkpreview.LinkPreview;
+import org.thoughtcrime.securesms.mediapreview.MediaIntentFactory;
 import org.thoughtcrime.securesms.mms.GlideRequests;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientId;
@@ -46,7 +49,8 @@ public interface BindableConversationItem extends Unbindable, GiphyMp4Playable, 
             boolean hasWallpaper,
             boolean isMessageRequestAccepted,
             boolean canPlayInline,
-            @NonNull Colorizer colorizer);
+            @NonNull Colorizer colorizer,
+            @NonNull ConversationItemDisplayMode displayMode);
 
   @NonNull ConversationMessage getConversationMessage();
 
@@ -61,12 +65,13 @@ public interface BindableConversationItem extends Unbindable, GiphyMp4Playable, 
   }
 
   default void updateSelectedState() {
-    // Intentionall Blank.
+    // Intentionally Blank.
   }
 
   interface EventListener {
     void onQuoteClicked(MmsMessageRecord messageRecord);
     void onLinkPreviewClicked(@NonNull LinkPreview linkPreview);
+    void onQuotedIndicatorClicked(@NonNull MessageRecord messageRecord);
     void onMoreTextClicked(@NonNull RecipientId conversationRecipientId, long messageId, boolean isMms);
     void onStickerClicked(@NonNull StickerLocator stickerLocator);
     void onViewOnceMessageClicked(@NonNull MmsMessageRecord messageRecord);
@@ -100,11 +105,17 @@ public interface BindableConversationItem extends Unbindable, GiphyMp4Playable, 
     void onDonateClicked();
     void onBlockJoinRequest(@NonNull Recipient recipient);
     void onRecipientNameClicked(@NonNull RecipientId target);
+    void onInviteToSignalClicked();
+    void onActivatePaymentsClicked();
+    void onSendPaymentClicked(@NonNull RecipientId recipientId);
+    void onScheduledIndicatorClicked(@NonNull View view, @NonNull MessageRecord messageRecord);
 
     /** @return true if handled, false if you want to let the normal url handling continue */
     boolean onUrlClicked(@NonNull String url);
 
     void onViewGiftBadgeClicked(@NonNull MessageRecord messageRecord);
     void onGiftBadgeRevealed(@NonNull MessageRecord messageRecord);
+
+    void goToMediaPreview(ConversationItem parent, View sharedElement, MediaIntentFactory.MediaPreviewArgs args);
   }
 }

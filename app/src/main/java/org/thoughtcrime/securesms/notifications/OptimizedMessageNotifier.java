@@ -9,8 +9,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.signal.core.util.ExceptionUtil;
+import org.signal.core.util.ThreadUtil;
 import org.signal.core.util.concurrent.SignalExecutors;
-import org.thoughtcrime.securesms.notifications.v2.MessageNotifierV2;
+import org.thoughtcrime.securesms.notifications.v2.DefaultMessageNotifier;
 import org.thoughtcrime.securesms.notifications.v2.ConversationId;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.BubbleUtil;
@@ -23,13 +24,13 @@ import java.util.Optional;
  */
 public class OptimizedMessageNotifier implements MessageNotifier {
 
-  private final LeakyBucketLimiter limiter;
-  private final MessageNotifierV2  messageNotifierV2;
+  private final LeakyBucketLimiter     limiter;
+  private final DefaultMessageNotifier defaultMessageNotifier;
 
   @MainThread
   public OptimizedMessageNotifier(@NonNull Application context) {
-    this.limiter           = new LeakyBucketLimiter(5, 1000, new Handler(SignalExecutors.getAndStartHandlerThread("signal-notifier").getLooper()));
-    this.messageNotifierV2 = new MessageNotifierV2(context);
+    this.limiter                = new LeakyBucketLimiter(5, 1000, new Handler(SignalExecutors.getAndStartHandlerThread("signal-notifier", ThreadUtil.PRIORITY_IMPORTANT_BACKGROUND_THREAD).getLooper()));
+    this.defaultMessageNotifier = new DefaultMessageNotifier(context);
   }
 
   @Override
@@ -55,6 +56,11 @@ public class OptimizedMessageNotifier implements MessageNotifier {
   @Override
   public void notifyMessageDeliveryFailed(@NonNull Context context, @NonNull Recipient recipient, @NonNull ConversationId conversationId) {
     getNotifier().notifyMessageDeliveryFailed(context, recipient, conversationId);
+  }
+
+  @Override
+  public void notifyStoryDeliveryFailed(@NonNull Context context, @NonNull Recipient recipient, @NonNull ConversationId threadId) {
+    getNotifier().notifyStoryDeliveryFailed(context, recipient, threadId);
   }
 
   @Override
@@ -119,6 +125,6 @@ public class OptimizedMessageNotifier implements MessageNotifier {
   }
 
   private MessageNotifier getNotifier() {
-    return messageNotifierV2;
+    return defaultMessageNotifier;
   }
 }

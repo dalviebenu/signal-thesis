@@ -1,14 +1,15 @@
 package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.crypto.UnidentifiedAccessUtil;
-import org.thoughtcrime.securesms.database.MessageDatabase.SyncMessageId;
+import org.thoughtcrime.securesms.database.MessageTable.SyncMessageId;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.net.NotPushRegisteredException;
@@ -53,7 +54,7 @@ public class MultiDeviceViewOnceOpenJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
+  public @Nullable byte[] serialize() {
     String serialized;
 
     try {
@@ -62,7 +63,7 @@ public class MultiDeviceViewOnceOpenJob extends BaseJob {
       throw new AssertionError(e);
     }
 
-    return new Data.Builder().putString(KEY_MESSAGE_ID, serialized).build();
+    return new JsonJobData.Builder().putString(KEY_MESSAGE_ID, serialized).serialize();
   }
 
   @Override
@@ -89,7 +90,7 @@ public class MultiDeviceViewOnceOpenJob extends BaseJob {
       return;
     }
 
-    ViewOnceOpenMessage openMessage = new ViewOnceOpenMessage(RecipientUtil.toSignalServiceAddress(context, recipient), messageId.timestamp);
+    ViewOnceOpenMessage openMessage = new ViewOnceOpenMessage(RecipientUtil.getOrFetchServiceId(context, recipient), messageId.timestamp);
 
     messageSender.sendSyncMessage(SignalServiceSyncMessage.forViewOnceOpen(openMessage), UnidentifiedAccessUtil.getAccessForSync(context));
   }
@@ -123,9 +124,10 @@ public class MultiDeviceViewOnceOpenJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<MultiDeviceViewOnceOpenJob> {
     @Override
-    public @NonNull MultiDeviceViewOnceOpenJob create(@NonNull Parameters parameters, @NonNull Data data) {
-      SerializableSyncMessageId messageId;
+    public @NonNull MultiDeviceViewOnceOpenJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
 
+      SerializableSyncMessageId messageId;
       try {
         messageId = JsonUtils.fromJson(data.getString(KEY_MESSAGE_ID), SerializableSyncMessageId.class);
       } catch (IOException e) {

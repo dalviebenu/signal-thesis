@@ -50,7 +50,7 @@ import org.signal.libsignal.protocol.fingerprint.NumericFingerprintGenerator;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.crypto.IdentityKeyParcelable;
 import org.thoughtcrime.securesms.crypto.ReentrantSessionLock;
-import org.thoughtcrime.securesms.database.IdentityDatabase;
+import org.thoughtcrime.securesms.database.IdentityTable;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
 import org.thoughtcrime.securesms.jobs.MultiDeviceVerifiedUpdateJob;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
@@ -284,15 +284,14 @@ public class VerifyDisplayFragment extends Fragment implements ViewTreeObserver.
   public boolean onContextItemSelected(MenuItem item) {
     if (fingerprint == null) return super.onContextItemSelected(item);
 
-    switch (item.getItemId()) {
-      case R.id.menu_copy:
-        handleCopyToClipboard(fingerprint, codes.length);
-        return true;
-      case R.id.menu_compare:
-        handleCompareWithClipboard(fingerprint);
-        return true;
-      default:
-        return super.onContextItemSelected(item);
+    if (item.getItemId() ==  R.id.menu_copy) {
+      handleCopyToClipboard(fingerprint, codes.length);
+      return true;
+    } else if (item.getItemId() == R.id.menu_compare) {
+      handleCompareWithClipboard(fingerprint);
+      return true;
+    } else {
+      return super.onContextItemSelected(item);
     }
   }
 
@@ -545,19 +544,19 @@ public class VerifyDisplayFragment extends Fragment implements ViewTreeObserver.
             ApplicationDependencies.getProtocolStore().aci().identities()
                                    .saveIdentityWithoutSideEffects(recipientId,
                                                                    remoteIdentity,
-                                                                   IdentityDatabase.VerifiedStatus.VERIFIED,
+                                                                   IdentityTable.VerifiedStatus.VERIFIED,
                                                                    false,
                                                                    System.currentTimeMillis(),
                                                                    true);
           } else {
-            ApplicationDependencies.getProtocolStore().aci().identities().setVerified(recipientId, remoteIdentity, IdentityDatabase.VerifiedStatus.DEFAULT);
+            ApplicationDependencies.getProtocolStore().aci().identities().setVerified(recipientId, remoteIdentity, IdentityTable.VerifiedStatus.DEFAULT);
           }
 
           ApplicationDependencies.getJobManager()
                                  .add(new MultiDeviceVerifiedUpdateJob(recipientId,
                                                                        remoteIdentity,
-                                                                       verified ? IdentityDatabase.VerifiedStatus.VERIFIED
-                                                                                : IdentityDatabase.VerifiedStatus.DEFAULT));
+                                                                       verified ? IdentityTable.VerifiedStatus.VERIFIED
+                                                                                : IdentityTable.VerifiedStatus.DEFAULT));
           StorageSyncHelper.scheduleSyncForDataChange();
 
           IdentityUtil.markIdentityVerified(context, recipient.get(), verified, false);

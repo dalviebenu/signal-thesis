@@ -12,13 +12,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class OutgoingPushMessage {
 
   @JsonProperty
-  private int    type;
+  public int    type;
   @JsonProperty
-  private int    destinationDeviceId;
+  public int    destinationDeviceId;
   @JsonProperty
-  private int    destinationRegistrationId;
+  public int    destinationRegistrationId;
   @JsonProperty
-  private String content;
+  public String content;
+
+  public OutgoingPushMessage() {}
 
   public OutgoingPushMessage(int type,
                              int destinationDeviceId,

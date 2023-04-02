@@ -1,47 +1,20 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-apply plugin: 'com.google.protobuf'
-apply plugin: 'androidx.navigation.safeargs'
-apply plugin: 'org.jlleitschuh.gradle.ktlint'
-apply from: 'translations.gradle'
-apply plugin: 'org.jetbrains.kotlin.android'
-apply plugin: 'app.cash.exhaustive'
-apply plugin: 'kotlin-parcelize'
-apply from: 'static-ips.gradle'
+import com.android.build.api.dsl.ManagedVirtualDevice
 
-repositories {
-    maven {
-        url "https://raw.github.com/signalapp/maven/master/circular-progress-button/releases/"
-        content {
-            includeGroupByRegex "com\\.github\\.dmytrodanylyk\\.circular-progress-button\\.*"
-        }
-    }
-    maven {
-        url "https://raw.github.com/signalapp/maven/master/sqlcipher/release/"
-        content {
-            includeGroupByRegex "org\\.signal.*"
-        }
-    }
-    maven {
-        url "https://www.jitpack.io"
-    }
-
-    google()
-    mavenCentral()
-    mavenLocal()
-    maven {
-        url "https://dl.cloudsmith.io/qxAgwaeEE1vN8aLU/mobilecoin/mobilecoin/maven/"
-    }
-    jcenter {
-        content {
-            includeVersion "mobi.upod", "time-duration-picker", "1.1.3"
-            includeVersion "cn.carbswang.android", "NumberPickerView", "1.0.9"
-            includeVersion "com.takisoft.fix", "colorpicker", "0.9.1"
-            includeVersion "com.codewaves.stickyheadergrid", "stickyheadergrid", "0.9.4"
-            includeVersion "com.google.android", "flexbox", "0.3.0"
-        }
-    }
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+    id 'com.google.protobuf'
+    id 'androidx.navigation.safeargs'
+    id 'org.jlleitschuh.gradle.ktlint'
+    id 'org.jetbrains.kotlin.android'
+    id 'app.cash.exhaustive'
+    id 'kotlin-parcelize'
+    id 'com.squareup.wire'
+    id 'android-constants'
+    id 'translations'
 }
+
+apply from: 'static-ips.gradle'
 
 protobuf {
     protoc {
@@ -58,13 +31,23 @@ protobuf {
     }
 }
 
-ktlint {
-    // Use a newer version to resolve https://github.com/JLLeitschuh/ktlint-gradle/issues/507
-    version = "0.43.2"
+wire {
+    kotlin {
+        javaInterop = true
+    }
+
+    sourcePath {
+        srcDir 'src/main/protowire'
+    }
 }
 
-def canonicalVersionCode = 1062
-def canonicalVersionName = "5.40.2"
+ktlint {
+    // Use a newer version to resolve https://github.com/JLLeitschuh/ktlint-gradle/issues/507
+    version = "0.47.1"
+}
+
+def canonicalVersionCode = 1237
+def canonicalVersionName = "6.16.1"
 
 def postFixSize = 100
 def abiPostFix = ['universal'   : 0,
@@ -79,32 +62,39 @@ def selectableVariants = [
         'nightlyProdSpinner',
         'nightlyProdPerf',
         'nightlyProdRelease',
+        'nightlyStagingRelease',
+        'nightlyPnpPerf',
+        'nightlyPnpRelease',
         'playProdDebug',
         'playProdSpinner',
         'playProdPerf',
+        'playProdBenchmark',
+        'playProdInstrumentation',
         'playProdRelease',
         'playStagingDebug',
         'playStagingSpinner',
         'playStagingPerf',
+        'playStagingInstrumentation',
+        'playPnpDebug',
+        'playPnpSpinner',
         'playStagingRelease',
         'websiteProdSpinner',
         'websiteProdRelease',
 ]
 
 android {
-    buildToolsVersion BUILD_TOOL_VERSION
-    compileSdkVersion COMPILE_SDK
+    namespace 'org.thoughtcrime.securesms'
+
+    buildToolsVersion = signalBuildToolsVersion
+    compileSdkVersion = signalCompileSdkVersion
 
     flavorDimensions 'distribution', 'environment'
     useLibrary 'org.apache.http.legacy'
+    testBuildType 'instrumentation'
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
         freeCompilerArgs = ["-Xallow-result-return-type"]
-    }
-
-    dexOptions {
-        javaMaxHeapSize "4g"
     }
 
     signingConfigs {
@@ -124,14 +114,19 @@ android {
         unitTests {
             includeAndroidResources = true
         }
+
+        managedDevices {
+            devices {
+                pixel3api30 (ManagedVirtualDevice) {
+                    device = "Pixel 3"
+                    apiLevel = 30
+                    systemImageSource = "google-atd"
+                    require64Bit = false
+                }
+            }
+        }
     }
 
-    lintOptions {
-        checkReleaseBuilds false
-        abortOnError true
-        baseline file("lint-baseline.xml")
-        disable "LintError"
-    }
 
     sourceSets {
         test {
@@ -145,32 +140,39 @@ android {
 
     compileOptions {
         coreLibraryDesugaringEnabled true
-        sourceCompatibility JAVA_VERSION
-        targetCompatibility JAVA_VERSION
+        sourceCompatibility signalJavaVersion
+        targetCompatibility signalJavaVersion
     }
 
     packagingOptions {
-        exclude 'LICENSE.txt'
-        exclude 'LICENSE'
-        exclude 'NOTICE'
-        exclude 'asm-license.txt'
-        exclude 'META-INF/LICENSE'
-        exclude 'META-INF/NOTICE'
-        exclude 'META-INF/proguard/androidx-annotations.pro'
+        resources {
+            excludes += ['LICENSE.txt', 'LICENSE', 'NOTICE', 'asm-license.txt', 'META-INF/LICENSE', 'META-INF/LICENSE.md', 'META-INF/NOTICE', 'META-INF/LICENSE-notice.md', 'META-INF/proguard/androidx-annotations.pro', 'libsignal_jni.dylib', 'signal_jni.dll']
+        }
     }
 
+
+    buildFeatures {
+        viewBinding true
+        compose true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = '1.3.2'
+    }
 
     defaultConfig {
         versionCode canonicalVersionCode * postFixSize
         versionName canonicalVersionName
-        minSdk 26
 
-        targetSdkVersion TARGET_SDK
+        minSdkVersion signalMinSdkVersion
+        targetSdkVersion signalTargetSdkVersion
 
         multiDexEnabled true
 
         vectorDrawables.useSupportLibrary = true
-        project.ext.set("archivesBaseName", "Signal");
+        project.ext.set("archivesBaseName", "Signal")
+
+        manifestPlaceholders = [mapsKey:"AIzaSyCSx9xea86GwDKGznCAULE9Y5a8b-TfN9U"]
 
         buildConfigField "long", "BUILD_TIMESTAMP", getLastCommitTimestamp() + "L"
         buildConfigField "String", "GIT_HASH", "\"${getGitHash()}\""
@@ -179,12 +181,13 @@ android {
         buildConfigField "String", "SIGNAL_CDN_URL", "\"https://cdn.signal.org\""
         buildConfigField "String", "SIGNAL_CDN2_URL", "\"https://cdn2.signal.org\""
         buildConfigField "String", "SIGNAL_CONTACT_DISCOVERY_URL", "\"https://api.directory.signal.org\""
-        buildConfigField "String", "SIGNAL_CDSI_URL", "\"https://cdsi.staging.signal.org\""
+        buildConfigField "String", "SIGNAL_CDSI_URL", "\"https://cdsi.signal.org\""
         buildConfigField "String", "SIGNAL_SERVICE_STATUS_URL", "\"uptime.signal.org\""
         buildConfigField "String", "SIGNAL_KEY_BACKUP_URL", "\"https://api.backup.signal.org\""
         buildConfigField "String", "SIGNAL_SFU_URL", "\"https://sfu.voip.signal.org\""
-        buildConfigField "String[]", "SIGNAL_SFU_INTERNAL_NAMES", "new String[]{\"Test\", \"Staging\"}"
-        buildConfigField "String[]", "SIGNAL_SFU_INTERNAL_URLS", "new String[]{\"https://sfu.test.voip.signal.org\", \"https://sfu.staging.voip.signal.org\"}"
+        buildConfigField "String", "SIGNAL_STAGING_SFU_URL", "\"https://sfu.staging.voip.signal.org\""
+        buildConfigField "String[]", "SIGNAL_SFU_INTERNAL_NAMES", "new String[]{\"Test\", \"Staging\", \"Development\"}"
+        buildConfigField "String[]", "SIGNAL_SFU_INTERNAL_URLS", "new String[]{\"https://sfu.test.voip.signal.org\", \"https://sfu.staging.voip.signal.org\", \"https://sfu.staging.test.voip.signal.org\"}"
         buildConfigField "String", "CONTENT_PROXY_HOST", "\"contentproxy.signal.org\""
         buildConfigField "int", "CONTENT_PROXY_PORT", "443"
         buildConfigField "String[]", "SIGNAL_SERVICE_IPS", service_ips
@@ -196,18 +199,15 @@ android {
         buildConfigField "String[]", "SIGNAL_SFU_IPS", sfu_ips
         buildConfigField "String[]", "SIGNAL_CONTENT_PROXY_IPS", content_proxy_ips
         buildConfigField "String", "SIGNAL_AGENT", "\"OWA\""
-        buildConfigField "String", "CDS_MRENCLAVE", "\"c98e00a4e3ff977a56afefe7362a27e4961e4f19e211febfbb19b897e6b80b15\""
-        buildConfigField "String", "CDSI_MRENCLAVE", "\"42e36b74794abe612d698308b148ff8a7dc5fdc6ad28d99bc5024ed6ece18dfe\""
-        buildConfigField "org.thoughtcrime.securesms.KbsEnclave", "KBS_ENCLAVE", "new org.thoughtcrime.securesms.KbsEnclave(\"0cedba03535b41b67729ce9924185f831d7767928a1d1689acb689bc079c375f\", " +
-                                                                                                                           "\"187d2739d22be65e74b65f0055e74d31310e4267e5fac2b1246cc8beba81af39\", " +
-                                                                                                                           "\"ee19f1965b1eefa3dc4204eb70c04f397755f771b8c1909d080c04dad2a6a9ba\")"
-        buildConfigField "org.thoughtcrime.securesms.KbsEnclave[]", "KBS_FALLBACKS", "new org.thoughtcrime.securesms.KbsEnclave[] {" +
-                "new org.thoughtcrime.securesms.KbsEnclave(\"fe7c1bfae98f9b073d220366ea31163ee82f6d04bead774f71ca8e5c40847bfe\", " +
-                                                          "\"fe7c1bfae98f9b073d220366ea31163ee82f6d04bead774f71ca8e5c40847bfe\", " +
-                                                          "\"a3baab19ef6ce6f34ab9ebb25ba722725ae44a8872dc0ff08ad6d83a9489de87\")" +
-            "}"
+        buildConfigField "String", "CDSI_MRENCLAVE", "\"0f6fd79cdfdaa5b2e6337f534d3baf999318b0c462a7ac1f41297a3e4b424a57\""
+        buildConfigField "org.thoughtcrime.securesms.KbsEnclave", "KBS_ENCLAVE", "new org.thoughtcrime.securesms.KbsEnclave(\"e18376436159cda3ad7a45d9320e382e4a497f26b0dca34d8eab0bd0139483b5\", " +
+                                                                                                                           "\"3a485adb56e2058ef7737764c738c4069dd62bc457637eafb6bbce1ce29ddb89\", " +
+                                                                                                                           "\"45627094b2ea4a66f4cf0b182858a8dcf4b8479122c3820fe7fd0551a6d4cf5c\")"
+        buildConfigField "org.thoughtcrime.securesms.KbsEnclave[]", "KBS_FALLBACKS", "new org.thoughtcrime.securesms.KbsEnclave[] { new org.thoughtcrime.securesms.KbsEnclave(\"0cedba03535b41b67729ce9924185f831d7767928a1d1689acb689bc079c375f\", " +
+                                                                                                                                                                             "\"187d2739d22be65e74b65f0055e74d31310e4267e5fac2b1246cc8beba81af39\", " +
+                                                                                                                                                                             "\"ee19f1965b1eefa3dc4204eb70c04f397755f771b8c1909d080c04dad2a6a9ba\") }"
         buildConfigField "String", "UNIDENTIFIED_SENDER_TRUST_ROOT", "\"BXu6QIKVz5MA8gstzfOgRQGqyLqOwNKHL6INkv3IHWMF\""
-        buildConfigField "String", "ZKGROUP_SERVER_PUBLIC_PARAMS", "\"AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXQ==\""
+        buildConfigField "String", "ZKGROUP_SERVER_PUBLIC_PARAMS", "\"AMhf5ywVwITZMsff/eCyudZx9JDmkkkbV6PInzG4p8x3VqVJSFiMvnvlEKWuRob/1eaIetR31IYeAbm0NdOuHH8Qi+Rexi1wLlpzIo1gstHWBfZzy1+qHRV5A4TqPp15YzBPm0WSggW6PbSn+F4lf57VCnHF7p8SvzAA2ZZJPYJURt8X7bbg+H3i+PEjH9DXItNEqs2sNcug37xZQDLm7X36nOoGPs54XsEGzPdEV+itQNGUFEjY6X9Uv+Acuks7NpyGvCoKxGwgKgE5XyJ+nNKlyHHOLb6N1NuHyBrZrgtY/JYJHRooo5CEqYKBqdFnmbTVGEkCvJKxLnjwKWf+fEPoWeQFj5ObDjcKMZf2Jm2Ae69x+ikU5gBXsRmoF94GXTLfN0/vLt98KDPnxwAQL9j5V1jGOY8jQl6MLxEs56cwXN0dqCnImzVH3TZT1cJ8SW1BRX6qIVxEzjsSGx3yxF3suAilPMqGRp4ffyopjMD1JXiKR2RwLKzizUe5e8XyGOy9fplzhw3jVzTRyUZTRSZKkMLWcQ/gv0E4aONNqs4P\""
         buildConfigField "String[]", "LANGUAGES", "new String[]{\"" + autoResConfig().collect { s -> s.replace('-r', '_') }.join('", "') + '"}'
         buildConfigField "int", "CANONICAL_VERSION_CODE", "$canonicalVersionCode"
         buildConfigField "String", "DEFAULT_CURRENCIES", "\"EUR,AUD,GBP,CAD,CNY\""
@@ -220,6 +220,7 @@ android {
         buildConfigField "String", "BUILD_VARIANT_TYPE", "\"unset\""
         buildConfigField "String", "BADGE_STATIC_ROOT", "\"https://updates2.signal.org/static/badges/\""
         buildConfigField "String", "STRIPE_PUBLISHABLE_KEY", "\"pk_live_6cmGZopuTsV8novGgJJW9JpC00vLIgtQ1D\""
+        buildConfigField "boolean", "TRACING_ENABLED", "false"
 
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
@@ -229,14 +230,14 @@ android {
 
         splits {
             abi {
-                enable true
+                enable !project.hasProperty('generateBaselineProfile')
                 reset()
                 include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
                 universalApk true
             }
         }
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner "org.thoughtcrime.securesms.testing.SignalTestRunner"
         testInstrumentationRunnerArguments clearPackageData: 'true'
     }
 
@@ -261,6 +262,7 @@ android {
                     'proguard/proguard-retrofit.pro',
                     'proguard/proguard-webrtc.pro',
                     'proguard/proguard-klinker.pro',
+                    'proguard/proguard-mobilecoin.pro',
                     'proguard/proguard-retrolambda.pro',
                     'proguard/proguard-okhttp.pro',
                     'proguard/proguard-ez-vcard.pro',
@@ -268,8 +270,21 @@ android {
             testProguardFiles 'proguard/proguard-automation.pro',
                     'proguard/proguard.cfg'
 
+            manifestPlaceholders = [mapsKey:getMapsKey()]
+
             buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Debug\""
         }
+
+        instrumentation {
+            initWith debug
+            isDefault false
+            minifyEnabled false
+            matchingFallbacks = ['debug']
+            applicationIdSuffix ".instrumentation"
+
+            buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Instrumentation\""
+        }
+
         spinner {
             initWith debug
             isDefault false
@@ -277,11 +292,13 @@ android {
             matchingFallbacks = ['debug']
             buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Spinner\""
         }
+
         release {
             minifyEnabled true
             proguardFiles = buildTypes.debug.proguardFiles
             buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Release\""
         }
+
         perf {
             initWith debug
             isDefault false
@@ -289,6 +306,17 @@ android {
             minifyEnabled true
             matchingFallbacks = ['debug']
             buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Perf\""
+            buildConfigField "boolean", "TRACING_ENABLED", "true"
+        }
+
+        benchmark {
+            initWith debug
+            isDefault false
+            debuggable false
+            minifyEnabled true
+            matchingFallbacks = ['debug']
+            buildConfigField "String", "BUILD_VARIANT_TYPE", "\"Benchmark\""
+            buildConfigField "boolean", "TRACING_ENABLED", "true"
         }
     }
 
@@ -338,18 +366,16 @@ android {
             buildConfigField "String", "SIGNAL_CDN_URL", "\"https://cdn-staging.signal.org\""
             buildConfigField "String", "SIGNAL_CDN2_URL", "\"https://cdn2-staging.signal.org\""
             buildConfigField "String", "SIGNAL_CONTACT_DISCOVERY_URL", "\"https://api-staging.directory.signal.org\""
+            buildConfigField "String", "SIGNAL_CDSI_URL", "\"https://cdsi.staging.signal.org\""
             buildConfigField "String", "SIGNAL_KEY_BACKUP_URL", "\"https://api-staging.backup.signal.org\""
-            buildConfigField "String", "CDS_MRENCLAVE", "\"c98e00a4e3ff977a56afefe7362a27e4961e4f19e211febfbb19b897e6b80b15\""
-            buildConfigField "org.thoughtcrime.securesms.KbsEnclave", "KBS_ENCLAVE", "new org.thoughtcrime.securesms.KbsEnclave(\"dd6f66d397d9e8cf6ec6db238e59a7be078dd50e9715427b9c89b409ffe53f99\", " +
-                                                                                                                               "\"4200003414528c151e2dccafbc87aa6d3d66a5eb8f8c05979a6e97cb33cd493a\", " +
-                                                                                                                               "\"ee19f1965b1eefa3dc4204eb70c04f397755f771b8c1909d080c04dad2a6a9ba\")"
-            buildConfigField "org.thoughtcrime.securesms.KbsEnclave[]", "KBS_FALLBACKS", "new org.thoughtcrime.securesms.KbsEnclave[] {" +
-                    "new org.thoughtcrime.securesms.KbsEnclave(\"823a3b2c037ff0cbe305cc48928cfcc97c9ed4a8ca6d49af6f7d6981fb60a4e9\", " +
-                                                              "\"16b94ac6d2b7f7b9d72928f36d798dbb35ed32e7bb14c42b4301ad0344b46f29\", " +
-                                                              "\"a3baab19ef6ce6f34ab9ebb25ba722725ae44a8872dc0ff08ad6d83a9489de87\")" +
-                "}"
+            buildConfigField "org.thoughtcrime.securesms.KbsEnclave", "KBS_ENCLAVE", "new org.thoughtcrime.securesms.KbsEnclave(\"39963b736823d5780be96ab174869a9499d56d66497aa8f9b2244f777ebc366b\", " +
+                                                                                                                               "\"9dbc6855c198e04f21b5cc35df839fdcd51b53658454dfa3f817afefaffc95ef\", " +
+                                                                                                                               "\"45627094b2ea4a66f4cf0b182858a8dcf4b8479122c3820fe7fd0551a6d4cf5c\")"
+            buildConfigField "org.thoughtcrime.securesms.KbsEnclave[]", "KBS_FALLBACKS", "new org.thoughtcrime.securesms.KbsEnclave[] { new org.thoughtcrime.securesms.KbsEnclave(\"dd6f66d397d9e8cf6ec6db238e59a7be078dd50e9715427b9c89b409ffe53f99\", " +
+                                                                                                                                                                                 "\"4200003414528c151e2dccafbc87aa6d3d66a5eb8f8c05979a6e97cb33cd493a\", " +
+                                                                                                                                                                                 "\"ee19f1965b1eefa3dc4204eb70c04f397755f771b8c1909d080c04dad2a6a9ba\") }"
             buildConfigField "String", "UNIDENTIFIED_SENDER_TRUST_ROOT", "\"BbqY1DzohE4NUZoVF+L18oUPrK3kILllLEJh2UnPSsEx\""
-            buildConfigField "String", "ZKGROUP_SERVER_PUBLIC_PARAMS", "\"ABSY21VckQcbSXVNCGRYJcfWHiAMZmpTtTELcDmxgdFbtp/bWsSxZdMKzfCp8rvIs8ocCU3B37fT3r4Mi5qAemeGeR2X+/YmOGR5ofui7tD5mDQfstAI9i+4WpMtIe8KC3wU5w3Inq3uNWVmoGtpKndsNfwJrCg0Hd9zmObhypUnSkfYn2ooMOOnBpfdanRtrvetZUayDMSC5iSRcXKpdlukrpzzsCIvEwjwQlJYVPOQPj4V0F4UXXBdHSLK05uoPBCQG8G9rYIGedYsClJXnbrgGYG3eMTG5hnx4X4ntARBgELuMWWUEEfSK0mjXg+/2lPmWcTZWR9nkqgQQP0tbzuiPm74H2wMO4u1Wafe+UwyIlIT9L7KLS19Aw8r4sPrXQ==\""
+            buildConfigField "String", "ZKGROUP_SERVER_PUBLIC_PARAMS", "\"ABSY21VckQcbSXVNCGRYJcfWHiAMZmpTtTELcDmxgdFbtp/bWsSxZdMKzfCp8rvIs8ocCU3B37fT3r4Mi5qAemeGeR2X+/YmOGR5ofui7tD5mDQfstAI9i+4WpMtIe8KC3wU5w3Inq3uNWVmoGtpKndsNfwJrCg0Hd9zmObhypUnSkfYn2ooMOOnBpfdanRtrvetZUayDMSC5iSRcXKpdlukrpzzsCIvEwjwQlJYVPOQPj4V0F4UXXBdHSLK05uoPBCQG8G9rYIGedYsClJXnbrgGYG3eMTG5hnx4X4ntARBgELuMWWUEEfSK0mjXg+/2lPmWcTZWR9nkqgQQP0tbzuiPm74H2wMO4u1Wafe+UwyIlIT9L7KLS19Aw8r4sPrXZSSsOZ6s7M1+rTJN0bI5CKY2PX29y5Ok3jSWufIKcgKOnWoP67d5b2du2ZVJjpjfibNIHbT/cegy/sBLoFwtHogVYUewANUAXIaMPyCLRArsKhfJ5wBtTminG/PAvuBdJ70Z/bXVPf8TVsR292zQ65xwvWTejROW6AZX6aqucUj\""
             buildConfigField "String", "MOBILE_COIN_ENVIRONMENT", "\"testnet\""
             buildConfigField "String", "SIGNAL_CAPTCHA_URL", "\"https://signalcaptchas.org/staging/registration/generate.html\""
             buildConfigField "String", "RECAPTCHA_PROOF_URL", "\"https://signalcaptchas.org/staging/challenge/generate.html\""
@@ -357,6 +383,22 @@ android {
             buildConfigField "String", "BUILD_ENVIRONMENT_TYPE", "\"Staging\""
             buildConfigField "String", "STRIPE_PUBLISHABLE_KEY", "\"pk_test_sngOd8FnXNkpce9nPXawKrJD00kIDngZkD\""
         }
+
+        pnp {
+            dimension 'environment'
+
+            initWith staging
+            applicationIdSuffix ".pnp"
+
+            buildConfigField "String", "BUILD_ENVIRONMENT_TYPE", "\"Pnp\""
+        }
+    }
+
+    lint {
+        abortOnError true
+        baseline file('lint-baseline.xml')
+        checkReleaseBuilds false
+        disable 'LintError'
     }
 
     android.applicationVariants.all { variant ->
@@ -397,21 +439,20 @@ android {
 dependencies {
     implementation libs.androidx.core.ktx
     implementation libs.androidx.fragment.ktx
-    implementation project(path: ':deniableEncryption')
     lintChecks project(':lintchecks')
 
     coreLibraryDesugaring libs.android.tools.desugar
 
     implementation (libs.androidx.appcompat) {
         version {
-            strictly '1.2.0'
+            strictly '1.6.1'
         }
     }
-    implementation libs.androidx.window
+    implementation libs.androidx.window.window
+    implementation libs.androidx.window.java
     implementation libs.androidx.recyclerview
     implementation libs.material.material
     implementation libs.androidx.legacy.support
-    implementation libs.androidx.cardview
     implementation libs.androidx.preference
     implementation libs.androidx.legacy.preference
     implementation libs.androidx.gridlayout
@@ -420,7 +461,9 @@ dependencies {
     implementation libs.androidx.multidex
     implementation libs.androidx.navigation.fragment.ktx
     implementation libs.androidx.navigation.ui.ktx
-    implementation libs.androidx.lifecycle.extensions
+    implementation libs.androidx.lifecycle.viewmodel.ktx
+    implementation libs.androidx.lifecycle.livedata.ktx
+    implementation libs.androidx.lifecycle.process
     implementation libs.androidx.lifecycle.viewmodel.savedstate
     implementation libs.androidx.lifecycle.common.java8
     implementation libs.androidx.lifecycle.reactivestreams.ktx
@@ -432,6 +475,9 @@ dependencies {
     implementation libs.androidx.autofill
     implementation libs.androidx.biometric
     implementation libs.androidx.sharetarget
+    implementation libs.androidx.profileinstaller
+    implementation libs.androidx.asynclayoutinflater
+    implementation libs.androidx.asynclayoutinflater.appcompat
 
     implementation (libs.firebase.messaging) {
         exclude group: 'com.google.firebase', module: 'firebase-core'
@@ -457,6 +503,9 @@ dependencies {
     implementation project(':donations')
     implementation project(':contacts')
     implementation project(':qr')
+    implementation project(':sms-exporter')
+    implementation project(':sticky-header-grid')
+    implementation project(':photoview')
 
     implementation libs.libsignal.android
     implementation libs.google.protobuf.javalite
@@ -477,21 +526,16 @@ dependencies {
     implementation libs.emilsjolander.stickylistheaders
     implementation libs.jpardogo.materialtabstrip
     implementation libs.apache.httpclient.android
-    implementation libs.photoview
     implementation libs.glide.glide
     implementation libs.roundedimageview
     implementation libs.materialish.progress
     implementation libs.greenrobot.eventbus
     implementation libs.waitingdots
-    implementation libs.floatingactionbutton
     implementation libs.google.zxing.android.integration
-    implementation libs.time.duration.picker
     implementation libs.google.zxing.core
+    implementation libs.google.flexbox
     implementation (libs.subsampling.scale.image.view) {
         exclude group: 'com.android.support', module: 'support-annotations'
-    }
-    implementation (libs.numberpickerview) {
-        exclude group: 'com.android.support', module: 'appcompat-v7'
     }
     implementation (libs.android.tooltips) {
         exclude group: 'com.android.support', module: 'appcompat-v7'
@@ -501,15 +545,8 @@ dependencies {
         exclude group: 'com.squareup.okhttp', module: 'okhttp-urlconnection'
     }
     implementation libs.stream
-    implementation (libs.colorpicker) {
-        exclude group: 'com.android.support', module: 'appcompat-v7'
-        exclude group: 'com.android.support', module: 'recyclerview-v7'
-    }
 
     implementation libs.lottie
-
-    implementation libs.stickyheadergrid
-    implementation libs.circular.progress.button
 
     implementation libs.signal.android.database.sqlcipher
     implementation libs.androidx.sqlite
@@ -537,6 +574,7 @@ dependencies {
         force = true
     }
     testImplementation testLibs.hamcrest.hamcrest
+    testImplementation testLibs.mockk
 
     testImplementation(testFixtures(project(":libsignal-service")))
 
@@ -545,6 +583,14 @@ dependencies {
     androidTestImplementation testLibs.androidx.test.core
     androidTestImplementation testLibs.androidx.test.core.ktx
     androidTestImplementation testLibs.androidx.test.ext.junit.ktx
+    androidTestImplementation testLibs.mockito.android
+    androidTestImplementation testLibs.mockito.kotlin
+    androidTestImplementation testLibs.mockk.android
+    androidTestImplementation testLibs.square.okhttp.mockserver
+
+    instrumentationImplementation (libs.androidx.fragment.testing) {
+        exclude group: 'androidx.test', module: 'core'
+    }
 
     testImplementation testLibs.espresso.core
 
@@ -556,7 +602,10 @@ dependencies {
     implementation libs.rxjava3.rxkotlin
     implementation libs.rxdogtag
 
-    androidTestUtil 'androidx.test:orchestrator:1.4.1'
+    androidTestUtil testLibs.androidx.test.orchestrator
+
+    implementation project(':core-ui')
+    ktlintRuleset libs.ktlint.twitter.compose
 }
 
 def getLastCommitTimestamp() {
@@ -565,7 +614,7 @@ def getLastCommitTimestamp() {
     }
 
     new ByteArrayOutputStream().withStream { os ->
-        def result = exec {
+        exec {
             executable = 'git'
             args = ['log', '-1', '--pretty=format:%ct']
             standardOutput = os
@@ -577,20 +626,20 @@ def getLastCommitTimestamp() {
 
 def getGitHash() {
     if (!(new File('.git').exists())) {
-        return "abcd1234"
+        throw new IllegalStateException("Must be a git repository to guarantee reproducible builds! (git hash is part of APK)")
     }
 
     def stdout = new ByteArrayOutputStream()
     exec {
-        commandLine 'git', 'rev-parse', '--short', 'HEAD'
+        commandLine 'git', 'rev-parse', 'HEAD'
         standardOutput = stdout
     }
-    return stdout.toString().trim()
+    return stdout.toString().trim().substring(0, 12)
 }
 
 def getCurrentGitTag() {
     if (!(new File('.git').exists())) {
-        return ''
+        throw new IllegalStateException("Must be a git repository to guarantee reproducible builds! (git hash is part of APK)")
     }
 
     def stdout = new ByteArrayOutputStream()
@@ -624,14 +673,22 @@ def loadKeystoreProperties(filename) {
     if (keystorePropertiesFile.exists()) {
         def keystoreProperties = new Properties()
         keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-        return keystoreProperties;
+        return keystoreProperties
     } else {
-        return null;
+        return null
     }
 }
 
-def getDateSuffix() {
+static def getDateSuffix() {
     def date = new Date()
     def formattedDate = date.format('yyyy-MM-dd-HH:mm')
     return formattedDate
+}
+
+def getMapsKey() {
+    def mapKey = file("${project.rootDir}/maps.key")
+    if (mapKey.exists()) {
+        return mapKey.readLines()[0]
+    }
+    return "AIzaSyCSx9xea86GwDKGznCAULE9Y5a8b-TfN9U"
 }

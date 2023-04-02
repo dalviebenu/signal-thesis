@@ -31,8 +31,6 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.Navigation;
 
-import com.dd.CircularProgressButton;
-
 import net.zetetic.database.sqlcipher.SQLiteDatabase;
 
 import org.greenrobot.eventbus.EventBus;
@@ -43,8 +41,8 @@ import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.AppInitialization;
 import org.thoughtcrime.securesms.LoggingFragment;
 import org.thoughtcrime.securesms.R;
+import org.thoughtcrime.securesms.backup.BackupEvent;
 import org.thoughtcrime.securesms.backup.BackupPassphrase;
-import org.thoughtcrime.securesms.backup.FullBackupBase;
 import org.thoughtcrime.securesms.backup.FullBackupImporter;
 import org.thoughtcrime.securesms.crypto.AttachmentSecretProvider;
 import org.thoughtcrime.securesms.database.NoExternalStorageException;
@@ -58,25 +56,24 @@ import org.thoughtcrime.securesms.util.DateUtils;
 import org.thoughtcrime.securesms.util.Util;
 import org.signal.core.util.concurrent.SimpleTask;
 import org.thoughtcrime.securesms.util.navigation.SafeNavigation;
+import org.thoughtcrime.securesms.util.views.CircularProgressMaterialButton;
 
 import java.io.IOException;
 import java.util.Locale;
 
 import static org.thoughtcrime.securesms.registration.fragments.RegistrationViewDelegate.setDebugLogSubmitMultiTapView;
-import static org.thoughtcrime.securesms.util.CircularProgressButtonUtil.cancelSpinning;
-import static org.thoughtcrime.securesms.util.CircularProgressButtonUtil.setSpinning;
 
 public final class RestoreBackupFragment extends LoggingFragment {
 
   private static final String TAG                            = Log.tag(RestoreBackupFragment.class);
   private static final short  OPEN_DOCUMENT_TREE_RESULT_CODE = 13782;
 
-  private TextView               restoreBackupSize;
-  private TextView               restoreBackupTime;
-  private TextView               restoreBackupProgress;
-  private CircularProgressButton restoreButton;
-  private View                   skipRestoreButton;
-  private RegistrationViewModel  viewModel;
+  private TextView                       restoreBackupSize;
+  private TextView                       restoreBackupTime;
+  private TextView                       restoreBackupProgress;
+  private CircularProgressMaterialButton restoreButton;
+  private View                           skipRestoreButton;
+  private RegistrationViewModel          viewModel;
 
   @Override
   public View onCreateView(LayoutInflater inflater, ViewGroup container,
@@ -261,7 +258,7 @@ public final class RestoreBackupFragment extends LoggingFragment {
                      InputMethodManager inputMethodManager = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
                      inputMethodManager.hideSoftInputFromWindow(prompt.getWindowToken(), 0);
 
-                     setSpinning(restoreButton);
+                     restoreButton.setSpinning();
                      skipRestoreButton.setVisibility(View.INVISIBLE);
 
                      String passphrase = prompt.getText().toString();
@@ -294,8 +291,8 @@ public final class RestoreBackupFragment extends LoggingFragment {
                                         backup.getUri(),
                                         passphrase);
 
-          SignalDatabase.upgradeRestored(database);
-          NotificationChannels.restoreContactNotificationChannels(context);
+          SignalDatabase.runPostBackupRestoreTasks(database);
+          NotificationChannels.getInstance().restoreContactNotificationChannels();
 
           enableBackups(context);
 
@@ -315,7 +312,7 @@ public final class RestoreBackupFragment extends LoggingFragment {
       @Override
       protected void onPostExecute(@NonNull BackupImportResult result) {
         viewModel.markBackupCompleted();
-        cancelSpinning(restoreButton);
+        restoreButton.cancelSpinning();
         skipRestoreButton.setVisibility(View.VISIBLE);
 
         restoreBackupProgress.setText("");
@@ -356,7 +353,7 @@ public final class RestoreBackupFragment extends LoggingFragment {
   }
 
   @Subscribe(threadMode = ThreadMode.MAIN)
-  public void onEvent(@NonNull FullBackupBase.BackupEvent event) {
+  public void onEvent(@NonNull BackupEvent event) {
     long count = event.getCount();
 
     if (count == 0) {
@@ -365,10 +362,10 @@ public final class RestoreBackupFragment extends LoggingFragment {
       restoreBackupProgress.setText(getString(R.string.RegistrationActivity_d_messages_so_far, count));
     }
 
-    setSpinning(restoreButton);
+    restoreButton.setSpinning();
     skipRestoreButton.setVisibility(View.INVISIBLE);
 
-    if (event.getType() == FullBackupBase.BackupEvent.Type.FINISHED) {
+    if (event.getType() == BackupEvent.Type.FINISHED) {
       onBackupComplete();
     }
   }

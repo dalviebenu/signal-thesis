@@ -2,6 +2,7 @@ package org.thoughtcrime.securesms.mediasend.v2.text
 
 import android.graphics.Bitmap
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import androidx.annotation.ColorInt
 import androidx.lifecycle.LiveData
@@ -14,6 +15,7 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.schedulers.Schedulers
 import io.reactivex.rxjava3.subjects.BehaviorSubject
 import io.reactivex.rxjava3.subjects.Subject
+import org.signal.core.util.getParcelableCompat
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies
@@ -25,15 +27,12 @@ import org.thoughtcrime.securesms.mediasend.v2.text.send.TextStoryPostSendReposi
 import org.thoughtcrime.securesms.mediasend.v2.text.send.TextStoryPostSendResult
 import org.thoughtcrime.securesms.util.livedata.Store
 
-class TextStoryPostCreationViewModel(private val repository: TextStoryPostSendRepository) : ViewModel() {
+class TextStoryPostCreationViewModel(private val repository: TextStoryPostSendRepository, private val identityChangesSince: Long = System.currentTimeMillis()) : ViewModel() {
 
   private val store = Store(TextStoryPostCreationState())
   private val textFontSubject: Subject<TextFont> = BehaviorSubject.create()
   private val temporaryBodySubject: Subject<String> = BehaviorSubject.createDefault("")
   private val disposables = CompositeDisposable()
-
-  private val internalThumbnail = MutableLiveData<Bitmap>()
-  val thumbnail: LiveData<Bitmap> = internalThumbnail
 
   private val internalTypeface = MutableLiveData<Typeface>()
 
@@ -55,14 +54,12 @@ class TextStoryPostCreationViewModel(private val repository: TextStoryPostSendRe
       }
   }
 
-  fun setBitmap(bitmap: Bitmap) {
-    internalThumbnail.value?.recycle()
-    internalThumbnail.value = bitmap
+  fun compressToBlob(bitmap: Bitmap): Single<Uri> {
+    return repository.compressToBlob(bitmap)
   }
 
   override fun onCleared() {
     disposables.clear()
-    thumbnail.value?.recycle()
   }
 
   fun saveToInstanceState(outState: Bundle) {
@@ -71,7 +68,7 @@ class TextStoryPostCreationViewModel(private val repository: TextStoryPostSendRe
 
   fun restoreFromInstanceState(inState: Bundle) {
     if (inState.containsKey(TEXT_STORY_INSTANCE_STATE)) {
-      val state: TextStoryPostCreationState = inState.getParcelable(TEXT_STORY_INSTANCE_STATE)!!
+      val state: TextStoryPostCreationState = inState.getParcelableCompat(TEXT_STORY_INSTANCE_STATE, TextStoryPostCreationState::class.java)!!
       textFontSubject.onNext(store.state.textFont)
       store.update { state }
     }
@@ -127,7 +124,8 @@ class TextStoryPostCreationViewModel(private val repository: TextStoryPostSendRe
     return repository.send(
       contacts,
       store.state,
-      linkPreview
+      linkPreview,
+      identityChangesSince
     )
   }
 

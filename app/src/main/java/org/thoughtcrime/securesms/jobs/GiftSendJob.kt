@@ -4,11 +4,11 @@ import com.google.protobuf.ByteString
 import org.signal.core.util.logging.Log
 import org.thoughtcrime.securesms.badges.gifts.Gifts
 import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
-import org.thoughtcrime.securesms.database.RecipientDatabase
+import org.thoughtcrime.securesms.database.RecipientTable
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.database.model.databaseprotos.GiftBadge
-import org.thoughtcrime.securesms.jobmanager.Data
 import org.thoughtcrime.securesms.jobmanager.Job
+import org.thoughtcrime.securesms.jobmanager.JsonJobData
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.recipients.RecipientId
 import org.thoughtcrime.securesms.sharing.MultiShareArgs
@@ -38,21 +38,21 @@ class GiftSendJob private constructor(parameters: Parameters, private val recipi
       additionalMessage = additionalMessage
     )
 
-  override fun serialize(): Data = Data.Builder()
+  override fun serialize(): ByteArray? = JsonJobData.Builder()
     .putLong(DATA_RECIPIENT_ID, recipientId.toLong())
     .putString(DATA_ADDITIONAL_MESSAGE, additionalMessage)
-    .build()
+    .serialize()
 
   override fun getFactoryKey(): String = KEY
 
   override fun run(): Result {
     Log.i(TAG, "Getting data and generating message for gift send to $recipientId")
 
-    val token = this.inputData?.getStringAsBlob(DonationReceiptRedemptionJob.INPUT_RECEIPT_CREDENTIAL_PRESENTATION) ?: return Result.failure()
+    val token = JsonJobData.deserialize(this.inputData).getStringAsBlob(DonationReceiptRedemptionJob.INPUT_RECEIPT_CREDENTIAL_PRESENTATION) ?: return Result.failure()
 
     val recipient = Recipient.resolved(recipientId)
 
-    if (recipient.isGroup || recipient.isDistributionList || recipient.registered != RecipientDatabase.RegisteredState.REGISTERED) {
+    if (recipient.isGroup || recipient.isDistributionList || recipient.registered != RecipientTable.RegisteredState.REGISTERED) {
       Log.w(TAG, "Invalid recipient $recipientId for gift send.")
       return Result.failure()
     }
@@ -68,19 +68,20 @@ class GiftSendJob private constructor(parameters: Parameters, private val recipi
 
     Log.i(TAG, "Sending gift badge to $recipientId...")
     var didInsert = false
-    MessageSender.send(context, outgoingMessage, thread, false, null) {
+    MessageSender.send(context, outgoingMessage, thread, MessageSender.SendType.SIGNAL, null) {
       didInsert = true
     }
 
     return if (didInsert) {
       Log.i(TAG, "Successfully inserted outbox message for gift", true)
 
-      if (additionalMessage != null) {
+      val trimmedMessage = additionalMessage?.trim()
+      if (!trimmedMessage.isNullOrBlank()) {
         Log.i(TAG, "Sending additional message...")
 
         val result = MultiShareSender.sendSync(
-          MultiShareArgs.Builder(setOf(ContactSearchKey.RecipientSearchKey.KnownRecipient(recipientId)))
-            .withDraftText(additionalMessage)
+          MultiShareArgs.Builder(setOf(ContactSearchKey.RecipientSearchKey(recipientId, false)))
+            .withDraftText(trimmedMessage)
             .build()
         )
 
@@ -103,7 +104,8 @@ class GiftSendJob private constructor(parameters: Parameters, private val recipi
   }
 
   class Factory : Job.Factory<GiftSendJob> {
-    override fun create(parameters: Parameters, data: Data): GiftSendJob {
+    override fun create(parameters: Parameters, serializedData: ByteArray?): GiftSendJob {
+      val data = JsonJobData.deserialize(serializedData)
       val recipientId = RecipientId.from(data.getLong(DATA_RECIPIENT_ID))
       val additionalMessage = data.getStringOrDefault(DATA_ADDITIONAL_MESSAGE, null)
 

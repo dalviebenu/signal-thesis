@@ -1,16 +1,13 @@
 apply plugin: 'java-library'
 
-repositories {
-    google()
-    mavenCentral()
-}
-
 dependencies {
     compileOnly lintLibs.lint.api
     compileOnly lintLibs.lint.checks
 
     testImplementation lintLibs.lint.tests
     testImplementation testLibs.junit.junit
+    testImplementation lintLibs.lint.api
+    testImplementation lintLibs.lint.checks
 }
 
 jar {

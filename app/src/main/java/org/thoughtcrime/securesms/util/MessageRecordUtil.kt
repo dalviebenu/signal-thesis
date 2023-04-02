@@ -4,10 +4,11 @@ package org.thoughtcrime.securesms.util
 
 import android.content.Context
 import org.thoughtcrime.securesms.R
-import org.thoughtcrime.securesms.database.MmsSmsColumns
+import org.thoughtcrime.securesms.database.MessageTypes
 import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord
 import org.thoughtcrime.securesms.database.model.MessageRecord
 import org.thoughtcrime.securesms.database.model.MmsMessageRecord
+import org.thoughtcrime.securesms.database.model.Quote
 import org.thoughtcrime.securesms.database.model.databaseprotos.GiftBadge
 import org.thoughtcrime.securesms.mms.QuoteModel
 import org.thoughtcrime.securesms.mms.TextSlide
@@ -41,7 +42,10 @@ fun MessageRecord.hasThumbnail(): Boolean =
   isMms && (this as MmsMessageRecord).slideDeck.thumbnailSlide != null
 
 fun MessageRecord.isStoryReaction(): Boolean =
-  isMms && MmsSmsColumns.Types.isStoryReaction((this as MmsMessageRecord).type)
+  isMms && MessageTypes.isStoryReaction(type)
+
+fun MessageRecord.isStory(): Boolean =
+  isMms && (this as MmsMessageRecord).storyType.isStory
 
 fun MessageRecord.isBorderless(context: Context): Boolean {
   return isCaptionlessMms(context) &&
@@ -77,6 +81,13 @@ fun MessageRecord.hasExtraText(): Boolean {
 
 fun MessageRecord.hasQuote(): Boolean =
   isMms && (this as MmsMessageRecord).quote != null
+
+fun MessageRecord.getQuote(): Quote? =
+  if (isMms) {
+    (this as MmsMessageRecord).quote
+  } else {
+    null
+  }
 
 fun MessageRecord.hasLinkPreview(): Boolean =
   isMms && (this as MmsMessageRecord).linkPreviews.isNotEmpty()
@@ -125,8 +136,13 @@ fun MessageRecord.isTextOnly(context: Context): Boolean {
         !hasSharedContact() &&
         !hasSticker() &&
         !isCaptionlessMms(context) &&
-        !hasGiftBadge()
+        !hasGiftBadge() &&
+        !isPaymentNotification()
       )
+}
+
+fun MessageRecord.isScheduled(): Boolean {
+  return (this as? MediaMmsMessageRecord)?.scheduledDate?.let { it != -1L } ?: false
 }
 
 /**

@@ -1,9 +1,11 @@
 package org.signal.qr
 
+import androidx.camera.core.ImageProxy
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.ChecksumException
 import com.google.zxing.DecodeHintType
 import com.google.zxing.FormatException
+import com.google.zxing.LuminanceSource
 import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.Result
@@ -21,22 +23,30 @@ class QrProcessor {
   private var previousHeight = 0
   private var previousWidth = 0
 
+  fun getScannedData(proxy: ImageProxy): String? {
+    return getScannedData(ImageProxyLuminanceSource(proxy))
+  }
+
   fun getScannedData(
     data: ByteArray,
     width: Int,
     height: Int
   ): String? {
+    return getScannedData(PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, false))
+  }
+
+  private fun getScannedData(source: LuminanceSource): String? {
     try {
-      if (width != previousWidth || height != previousHeight) {
-        Log.i(TAG, "Processing $width x $height image, data: ${data.size}")
-        previousWidth = width
-        previousHeight = height
+      if (source.width != previousWidth || source.height != previousHeight) {
+        Log.i(TAG, "Processing ${source.width} x ${source.height} image")
+        previousWidth = source.width
+        previousHeight = source.height
       }
 
-      val source = PlanarYUVLuminanceSource(data, width, height, 0, 0, width, height, false)
+      listener?.invoke(source)
 
       val bitmap = BinaryBitmap(HybridBinarizer(source))
-      val result: Result? = reader.decode(bitmap, emptyMap<DecodeHintType, String>())
+      val result: Result? = reader.decode(bitmap, mapOf(DecodeHintType.TRY_HARDER to true, DecodeHintType.CHARACTER_SET to "ISO-8859-1"))
 
       if (result != null) {
         return result.text
@@ -55,5 +65,8 @@ class QrProcessor {
 
   companion object {
     private val TAG = Log.tag(QrProcessor::class.java)
+
+    /** For debugging only */
+    var listener: ((LuminanceSource) -> Unit)? = null
   }
 }

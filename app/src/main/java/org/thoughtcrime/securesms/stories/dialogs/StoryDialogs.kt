@@ -7,52 +7,60 @@ import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import org.signal.core.util.DimensionUnit
 import org.thoughtcrime.securesms.R
-import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
-import org.thoughtcrime.securesms.keyvalue.SignalStore
-import org.thoughtcrime.securesms.recipients.Recipient
 
 object StoryDialogs {
 
-  /**
-   * Guards onAddToStory with a dialog
-   */
-  fun guardWithAddToYourStoryDialog(
+  fun removeGroupStory(
     context: Context,
-    contacts: Collection<ContactSearchKey>,
-    onAddToStory: () -> Unit,
-    onEditViewers: () -> Unit,
-    onCancel: () -> Unit = {}
+    groupName: String,
+    onConfirmed: () -> Unit
   ) {
-    if (!isFirstSendToMyStory(contacts)) {
-      onAddToStory()
+    MaterialAlertDialogBuilder(context)
+      .setTitle(R.string.StoryDialogs__remove_group_story)
+      .setMessage(context.getString(R.string.StoryDialogs__s_will_be_removed, groupName))
+      .setPositiveButton(R.string.StoryDialogs__remove) { _, _ -> onConfirmed() }
+      .setNegativeButton(android.R.string.cancel) { _, _ -> }
+      .show()
+  }
+
+  fun deleteDistributionList(
+    context: Context,
+    distributionListName: String,
+    onDelete: () -> Unit
+  ) {
+    MaterialAlertDialogBuilder(context)
+      .setTitle(R.string.StoryDialogs__delete_custom_story)
+      .setMessage(context.getString(R.string.StoryDialogs__s_and_updates_shared, distributionListName))
+      .setPositiveButton(R.string.StoryDialogs__delete) { _, _ -> onDelete() }
+      .setNegativeButton(android.R.string.cancel) { _, _ -> }
+      .show()
+  }
+
+  fun disableStories(
+    context: Context,
+    userHasStories: Boolean,
+    onDisable: () -> Unit
+  ) {
+    val positiveButtonMessage = if (userHasStories) {
+      R.string.StoryDialogs__turn_off_and_delete
     } else {
-      SignalStore.storyValues().userHasBeenNotifiedAboutStories = true
-      MaterialAlertDialogBuilder(context, R.style.Signal_ThemeOverlay_Dialog_Rounded)
-        .setTitle(R.string.StoryDialogs__add_to_story_q)
-        .setMessage(R.string.StoryDialogs__adding_content)
-        .setPositiveButton(R.string.StoryDialogs__add_to_story) { _, _ ->
-          onAddToStory.invoke()
-        }
-        .setNeutralButton(R.string.StoryDialogs__edit_viewers) { _, _ -> onEditViewers.invoke() }
-        .setNegativeButton(android.R.string.cancel) { _, _ -> onCancel.invoke() }
-        .setCancelable(false)
-        .show()
-    }
-  }
-
-  private fun isFirstSendToMyStory(shareContacts: Collection<ContactSearchKey>): Boolean {
-    if (SignalStore.storyValues().userHasBeenNotifiedAboutStories) {
-      return false
+      R.string.StoriesPrivacySettingsFragment__turn_off_stories
     }
 
-    return shareContacts.any { it is ContactSearchKey.RecipientSearchKey.Story && Recipient.resolved(it.recipientId).isMyStory }
+    MaterialAlertDialogBuilder(context)
+      .setTitle(R.string.StoriesPrivacySettingsFragment__turn_off_stories_question)
+      .setMessage(R.string.StoriesPrivacySettingsFragment__you_will_no_longer_be_able_to_share)
+      .setPositiveButton(positiveButtonMessage) { _, _ -> onDisable() }
+      .setNegativeButton(android.R.string.cancel) { _, _ -> }
+      .show()
   }
 
-  fun resendStory(context: Context, resend: () -> Unit) {
+  fun resendStory(context: Context, onDismiss: () -> Unit = {}, resend: () -> Unit) {
     MaterialAlertDialogBuilder(context)
       .setMessage(R.string.StoryDialogs__story_could_not_be_sent)
       .setNegativeButton(android.R.string.cancel, null)
       .setPositiveButton(R.string.StoryDialogs__send) { _, _ -> resend() }
+      .setOnDismissListener { onDismiss() }
       .show()
   }
 
@@ -77,6 +85,23 @@ object StoryDialogs {
           }
         }
       }
+      .show()
+  }
+
+  fun hideStory(
+    context: Context,
+    recipientName: String,
+    onCancelled: () -> Unit = {},
+    onHideStoryConfirmed: () -> Unit
+  ) {
+    MaterialAlertDialogBuilder(context, R.style.ThemeOverlay_Signal_MaterialAlertDialog)
+      .setTitle(R.string.StoriesLandingFragment__hide_story)
+      .setMessage(context.getString(R.string.StoriesLandingFragment__new_story_updates, recipientName))
+      .setPositiveButton(R.string.StoriesLandingFragment__hide) { _, _ ->
+        onHideStoryConfirmed()
+      }
+      .setNegativeButton(android.R.string.cancel) { _, _ -> onCancelled() }
+      .setOnCancelListener { onCancelled() }
       .show()
   }
 }

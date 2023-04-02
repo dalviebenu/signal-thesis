@@ -15,22 +15,22 @@ import org.thoughtcrime.securesms.attachments.AttachmentId;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.attachments.PointerAttachment;
 import org.thoughtcrime.securesms.blurhash.BlurHashEncoder;
-import org.thoughtcrime.securesms.database.AttachmentDatabase;
+import org.thoughtcrime.securesms.database.AttachmentTable;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
 import org.thoughtcrime.securesms.events.PartProgressEvent;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.mms.PartAuthority;
 import org.thoughtcrime.securesms.net.NotPushRegisteredException;
 import org.thoughtcrime.securesms.recipients.Recipient;
-import org.thoughtcrime.securesms.service.GenericForegroundService;
 import org.thoughtcrime.securesms.service.NotificationController;
 import org.thoughtcrime.securesms.util.MediaUtil;
 import org.whispersystems.signalservice.api.SignalServiceMessageSender;
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachment;
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
+import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentStream;
 import org.whispersystems.signalservice.api.push.exceptions.NonSuccessfulResumableUploadResponseCodeException;
 import org.whispersystems.signalservice.api.push.exceptions.ResumeLocationInvalidException;
 import org.whispersystems.signalservice.internal.push.http.ResumableUploadSpec;
@@ -85,11 +85,11 @@ public final class AttachmentUploadJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putLong(KEY_ROW_ID, attachmentId.getRowId())
-                             .putLong(KEY_UNIQUE_ID, attachmentId.getUniqueId())
-                             .putBoolean(KEY_FORCE_V2, forceV2)
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putLong(KEY_ROW_ID, attachmentId.getRowId())
+                                    .putLong(KEY_UNIQUE_ID, attachmentId.getUniqueId())
+                                    .putBoolean(KEY_FORCE_V2, forceV2)
+                                    .serialize();
   }
 
   @Override
@@ -108,14 +108,14 @@ public final class AttachmentUploadJob extends BaseJob {
       throw new NotPushRegisteredException();
     }
 
-    Data inputData = getInputData();
+    JsonJobData inputData = JsonJobData.deserialize(getInputData());
 
     ResumableUploadSpec resumableUploadSpec;
 
     if (forceV2) {
       Log.d(TAG, "Forcing utilization of V2");
       resumableUploadSpec = null;
-    } else if (inputData != null && inputData.hasString(ResumableUploadSpecJob.KEY_RESUME_SPEC)) {
+    } else if (inputData.hasString(ResumableUploadSpecJob.KEY_RESUME_SPEC)) {
       Log.d(TAG, "Using attachments V3");
       resumableUploadSpec = ResumableUploadSpec.deserialize(inputData.getString(ResumableUploadSpecJob.KEY_RESUME_SPEC));
     } else {
@@ -124,7 +124,7 @@ public final class AttachmentUploadJob extends BaseJob {
     }
 
     SignalServiceMessageSender messageSender      = ApplicationDependencies.getSignalServiceMessageSender();
-    AttachmentDatabase         database           = SignalDatabase.attachments();
+    AttachmentTable            database           = SignalDatabase.attachments();
     DatabaseAttachment         databaseAttachment = database.getAttachment(attachmentId);
 
     if (databaseAttachment == null) {
@@ -142,11 +142,12 @@ public final class AttachmentUploadJob extends BaseJob {
     Log.i(TAG, "Uploading attachment for message " + databaseAttachment.getMmsId() + " with ID " + databaseAttachment.getAttachmentId());
 
     try (NotificationController notification = getNotificationForAttachment(databaseAttachment)) {
-      SignalServiceAttachment        localAttachment  = getAttachmentFor(databaseAttachment, notification, resumableUploadSpec);
-      SignalServiceAttachmentPointer remoteAttachment = messageSender.uploadAttachment(localAttachment.asStream());
-      Attachment                     attachment       = PointerAttachment.forPointer(Optional.of(remoteAttachment), null, databaseAttachment.getFastPreflightId()).get();
+      try (SignalServiceAttachmentStream localAttachment = getAttachmentFor(databaseAttachment, notification, resumableUploadSpec)) {
+        SignalServiceAttachmentPointer remoteAttachment = messageSender.uploadAttachment(localAttachment);
+        Attachment                     attachment       = PointerAttachment.forPointer(Optional.of(remoteAttachment), null, databaseAttachment.getFastPreflightId()).get();
 
-      database.updateAttachmentAfterUpload(databaseAttachment.getAttachmentId(), attachment, remoteAttachment.getUploadTimestamp());
+        database.updateAttachmentAfterUpload(databaseAttachment.getAttachmentId(), attachment, remoteAttachment.getUploadTimestamp());
+      }
     } catch (NonSuccessfulResumableUploadResponseCodeException e) {
       if (e.getCode() == 400) {
         Log.w(TAG, "Failed to upload due to a 400 when getting resumable upload information. Downgrading to attachments v2", e);
@@ -157,7 +158,12 @@ public final class AttachmentUploadJob extends BaseJob {
 
   private @Nullable NotificationController getNotificationForAttachment(@NonNull Attachment attachment) {
     if (attachment.getSize() >= FOREGROUND_LIMIT) {
-      return GenericForegroundService.startForegroundTask(context, context.getString(R.string.AttachmentUploadJob_uploading_media));
+      try {
+        return ForegroundServiceUtil.startGenericTaskWhenCapable(context, context.getString(R.string.AttachmentUploadJob_uploading_media));
+      } catch (UnableToStartException e) {
+        Log.w(TAG, "Unable to start foreground service", e);
+        return null;
+      }
     } else {
       return null;
     }
@@ -177,9 +183,12 @@ public final class AttachmentUploadJob extends BaseJob {
     return exception instanceof IOException && !(exception instanceof NotPushRegisteredException);
   }
 
-  private @NonNull SignalServiceAttachment getAttachmentFor(Attachment attachment, @Nullable NotificationController notification, @Nullable ResumableUploadSpec resumableUploadSpec) throws InvalidAttachmentException {
+  private @NonNull SignalServiceAttachmentStream getAttachmentFor(Attachment attachment, @Nullable NotificationController notification, @Nullable ResumableUploadSpec resumableUploadSpec) throws InvalidAttachmentException {
+    if (attachment.getUri() == null || attachment.getSize() == 0) {
+      throw new InvalidAttachmentException(new IOException("Assertion failed, outgoing attachment has no data!"));
+    }
+
     try {
-      if (attachment.getUri() == null || attachment.getSize() == 0) throw new IOException("Assertion failed, outgoing attachment has no data!");
       InputStream is = PartAuthority.getAttachmentStream(context, attachment.getUri());
       SignalServiceAttachment.Builder builder = SignalServiceAttachment.newStreamBuilder()
                                                                        .withStream(is)
@@ -208,7 +217,6 @@ public final class AttachmentUploadJob extends BaseJob {
       } else {
         return builder.build();
       }
-
     } catch (IOException ioe) {
       throw new InvalidAttachmentException(ioe);
     }
@@ -218,7 +226,9 @@ public final class AttachmentUploadJob extends BaseJob {
     if (attachment.getBlurHash() != null) return attachment.getBlurHash().getHash();
     if (attachment.getUri() == null) return null;
 
-    return BlurHashEncoder.encode(PartAuthority.getAttachmentStream(context, attachment.getUri()));
+    try (InputStream inputStream = PartAuthority.getAttachmentStream(context, attachment.getUri())) {
+      return BlurHashEncoder.encode(inputStream);
+    }
   }
 
   private @Nullable String getVideoBlurHash(@NonNull Attachment attachment) throws IOException {
@@ -259,7 +269,9 @@ public final class AttachmentUploadJob extends BaseJob {
 
   public static final class Factory implements Job.Factory<AttachmentUploadJob> {
     @Override
-    public @NonNull AttachmentUploadJob create(@NonNull Parameters parameters, @NonNull org.thoughtcrime.securesms.jobmanager.Data data) {
+    public @NonNull AttachmentUploadJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       return new AttachmentUploadJob(parameters, new AttachmentId(data.getLong(KEY_ROW_ID), data.getLong(KEY_UNIQUE_ID)), data.getBooleanOrDefault(KEY_FORCE_V2, false));
     }
   }

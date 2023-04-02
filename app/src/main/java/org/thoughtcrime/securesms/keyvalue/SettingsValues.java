@@ -11,6 +11,7 @@ import androidx.lifecycle.LiveData;
 
 import org.signal.core.util.concurrent.SignalExecutors;
 import org.signal.core.util.logging.Log;
+import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
 import org.thoughtcrime.securesms.mms.SentMediaQuality;
@@ -22,6 +23,7 @@ import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.webrtc.CallBandwidthMode;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 @SuppressWarnings("deprecation")
@@ -48,6 +50,8 @@ public final class SettingsValues extends SignalStoreValues {
   public static final  String PREFER_SYSTEM_EMOJI                     = "settings.use.system.emoji";
   public static final  String ENTER_KEY_SENDS                         = "settings.enter.key.sends";
   public static final  String BACKUPS_ENABLED                         = "settings.backups.enabled";
+  public static final  String BACKUPS_SCHEDULE_HOUR                   = "settings.backups.schedule.hour";
+  public static final  String BACKUPS_SCHEDULE_MINUTE                 = "settings.backups.schedule.minute";
   public static final  String SMS_DELIVERY_REPORTS_ENABLED            = "settings.sms.delivery.reports.enabled";
   public static final  String WIFI_CALLING_COMPATIBILITY_MODE_ENABLED = "settings.wifi.calling.compatibility.mode.enabled";
   public static final  String MESSAGE_NOTIFICATIONS_ENABLED           = "settings.message.notifications.enabled";
@@ -66,6 +70,7 @@ public final class SettingsValues extends SignalStoreValues {
   private static final String UNIVERSAL_EXPIRE_TIMER                  = "settings.universal.expire.timer";
   private static final String SENT_MEDIA_QUALITY                      = "settings.sentMediaQuality";
   private static final String CENSORSHIP_CIRCUMVENTION_ENABLED        = "settings.censorshipCircumventionEnabled";
+  private static final String KEEP_MUTED_CHATS_ARCHIVED               = "settings.keepMutedChatsArchived";
 
   private final SingleLiveEvent<String> onConfigurationSettingChanged = new SingleLiveEvent<>();
 
@@ -109,7 +114,8 @@ public final class SettingsValues extends SignalStoreValues {
                          CALL_VIBRATE_ENABLED,
                          NOTIFY_WHEN_CONTACT_JOINS_SIGNAL,
                          UNIVERSAL_EXPIRE_TIMER,
-                         SENT_MEDIA_QUALITY);
+                         SENT_MEDIA_QUALITY,
+                         KEEP_MUTED_CHATS_ARCHIVED);
   }
 
   public @NonNull LiveData<String> getOnConfigurationSettingChanged() {
@@ -194,6 +200,34 @@ public final class SettingsValues extends SignalStoreValues {
     return getInteger(MESSAGE_FONT_SIZE, TextSecurePreferences.getMessageBodyTextSize(ApplicationDependencies.getApplication()));
   }
 
+  public int getMessageQuoteFontSize(@NonNull Context context) {
+    int   currentMessageSize   = getMessageFontSize();
+    int[] possibleMessageSizes = context.getResources().getIntArray(R.array.pref_message_font_size_values);
+    int[] possibleQuoteSizes   = context.getResources().getIntArray(R.array.pref_message_font_quote_size_values);
+    int   sizeIndex            = Arrays.binarySearch(possibleMessageSizes, currentMessageSize);
+
+    if (sizeIndex < 0) {
+      int closestSizeIndex = 0;
+      int closestSizeDiff  = Integer.MAX_VALUE;
+
+      for (int i = 0; i < possibleMessageSizes.length; i++) {
+        int diff = Math.abs(possibleMessageSizes[i] - currentMessageSize);
+        if (diff < closestSizeDiff) {
+          closestSizeIndex = i;
+          closestSizeDiff  = diff;
+        }
+      }
+
+      int newSize = possibleMessageSizes[closestSizeIndex];
+      Log.w(TAG, "Using non-standard font size of " + currentMessageSize + ". Closest match was " + newSize + ". Updating.");
+
+      setMessageFontSize(newSize);
+      sizeIndex = Arrays.binarySearch(possibleMessageSizes, newSize);
+    }
+
+    return possibleQuoteSizes[sizeIndex];
+  }
+
   public void setMessageFontSize(int messageFontSize) {
     putInteger(MESSAGE_FONT_SIZE, messageFontSize);
   }
@@ -229,6 +263,19 @@ public final class SettingsValues extends SignalStoreValues {
 
   public void setBackupEnabled(boolean backupEnabled) {
     putBoolean(BACKUPS_ENABLED, backupEnabled);
+  }
+
+  public int getBackupHour() {
+    return getInteger(BACKUPS_SCHEDULE_HOUR, 2);
+  }
+
+  public int getBackupMinute() {
+    return getInteger(BACKUPS_SCHEDULE_MINUTE, 0);
+  }
+
+  public void setBackupSchedule(int hour, int minute) {
+    putInteger(BACKUPS_SCHEDULE_HOUR, hour);
+    putInteger(BACKUPS_SCHEDULE_MINUTE, minute);
   }
 
   public boolean isSmsDeliveryReportsEnabled() {
@@ -400,6 +447,14 @@ public final class SettingsValues extends SignalStoreValues {
     putInteger(CENSORSHIP_CIRCUMVENTION_ENABLED, enabled ? CensorshipCircumventionEnabled.ENABLED.serialize() : CensorshipCircumventionEnabled.DISABLED.serialize());
   }
 
+  public void setKeepMutedChatsArchived(boolean enabled) {
+   putBoolean(KEEP_MUTED_CHATS_ARCHIVED, enabled);
+  }
+
+  public boolean shouldKeepMutedChatsArchived() {
+    return getBoolean(KEEP_MUTED_CHATS_ARCHIVED, false);
+  }
+
   private @Nullable Uri getUri(@NonNull String key) {
     String uri = getString(key, "");
 
@@ -421,10 +476,14 @@ public final class SettingsValues extends SignalStoreValues {
 
     public static CensorshipCircumventionEnabled deserialize(int value) {
       switch (value) {
-        case 0: return DEFAULT;
-        case 1: return ENABLED;
-        case 2: return DISABLED;
-        default: throw new IllegalArgumentException("Bad value: " + value);
+        case 0:
+          return DEFAULT;
+        case 1:
+          return ENABLED;
+        case 2:
+          return DISABLED;
+        default:
+          throw new IllegalArgumentException("Bad value: " + value);
       }
     }
 
@@ -448,10 +507,14 @@ public final class SettingsValues extends SignalStoreValues {
 
     public static @NonNull Theme deserialize(@NonNull String value) {
       switch (value) {
-        case "system": return SYSTEM;
-        case "light":  return LIGHT;
-        case "dark":   return DARK;
-        default:       throw new IllegalArgumentException("Unrecognized value " + value);
+        case "system":
+          return SYSTEM;
+        case "light":
+          return LIGHT;
+        case "dark":
+          return DARK;
+        default:
+          throw new IllegalArgumentException("Unrecognized value " + value);
       }
     }
   }

@@ -1,15 +1,17 @@
 package org.thoughtcrime.securesms.jobs;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.KbsEnclave;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
+import org.thoughtcrime.securesms.jobmanager.JsonJobData;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.JobManager;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.pin.KbsEnclaves;
+import org.whispersystems.signalservice.api.push.exceptions.NonSuccessfulResponseCodeException;
 import org.whispersystems.signalservice.internal.contacts.crypto.UnauthenticatedResponseException;
 
 import java.io.IOException;
@@ -64,11 +66,11 @@ public class ClearFallbackKbsEnclaveJob extends BaseJob {
   }
 
   @Override
-  public @NonNull Data serialize() {
-    return new Data.Builder().putString(KEY_ENCLAVE_NAME, enclave.getEnclaveName())
-                             .putString(KEY_SERVICE_ID, enclave.getServiceId())
-                             .putString(KEY_MR_ENCLAVE, enclave.getMrEnclave())
-                             .build();
+  public @Nullable byte[] serialize() {
+    return new JsonJobData.Builder().putString(KEY_ENCLAVE_NAME, enclave.getEnclaveName())
+                                    .putString(KEY_SERVICE_ID, enclave.getServiceId())
+                                    .putString(KEY_MR_ENCLAVE, enclave.getMrEnclave())
+                                    .serialize();
   }
 
   @Override
@@ -80,17 +82,37 @@ public class ClearFallbackKbsEnclaveJob extends BaseJob {
 
   @Override
   public boolean onShouldRetry(@NonNull Exception e) {
+    if (e instanceof NonSuccessfulResponseCodeException) {
+      switch (((NonSuccessfulResponseCodeException) e).getCode()) {
+        case 404:
+          return getRunAttempt() < 3;
+        case 508:
+          return false;
+      }
+    }
+
     return true;
   }
 
   @Override
+  public long getNextRunAttemptBackoff(int pastAttemptCount, @NonNull Exception e) {
+    if (e instanceof NonSuccessfulResponseCodeException && ((NonSuccessfulResponseCodeException) e).getCode() == 404) {
+      return TimeUnit.DAYS.toMillis(1);
+    } else {
+      return super.getNextRunAttemptBackoff(pastAttemptCount, e);
+    }
+  }
+
+  @Override
   public void onFailure() {
-    throw new AssertionError("This job should never fail. " + getClass().getSimpleName());
+    Log.w(TAG, "Job failed! It is likely that the old enclave is offline.");
   }
 
   public static class Factory implements Job.Factory<ClearFallbackKbsEnclaveJob> {
     @Override
-    public @NonNull ClearFallbackKbsEnclaveJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull ClearFallbackKbsEnclaveJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
+      JsonJobData data = JsonJobData.deserialize(serializedData);
+
       KbsEnclave enclave = new KbsEnclave(data.getString(KEY_ENCLAVE_NAME),
                                           data.getString(KEY_SERVICE_ID),
                                           data.getString(KEY_MR_ENCLAVE));

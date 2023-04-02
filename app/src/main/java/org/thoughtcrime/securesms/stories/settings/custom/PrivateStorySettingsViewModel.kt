@@ -39,7 +39,7 @@ class PrivateStorySettingsViewModel(private val distributionListId: Distribution
   }
 
   fun remove(recipient: Recipient) {
-    disposables += repository.removeMember(distributionListId, recipient.id)
+    disposables += repository.removeMember(store.state.privateStory!!, recipient.id)
       .subscribe {
         refresh()
       }
@@ -52,7 +52,9 @@ class PrivateStorySettingsViewModel(private val distributionListId: Distribution
   }
 
   fun delete(): Completable {
-    return repository.delete(distributionListId).observeOn(AndroidSchedulers.mainThread())
+    return repository.delete(distributionListId)
+      .doOnSubscribe { store.update { it.copy(isActionInProgress = true) } }
+      .observeOn(AndroidSchedulers.mainThread())
   }
 
   class Factory(private val privateStoryItemData: DistributionListId, private val repository: PrivateStorySettingsRepository) : ViewModelProvider.Factory {

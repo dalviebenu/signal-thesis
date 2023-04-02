@@ -7,10 +7,12 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.setFragmentResult
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.FullScreenDialogFragment
+import org.thoughtcrime.securesms.conversation.mutiselect.forward.MultiselectForwardFragment.Companion.DIALOG_TITLE
+import org.thoughtcrime.securesms.stories.Stories
 import org.thoughtcrime.securesms.util.fragments.findListener
 
 class MultiselectForwardFullScreenDialogFragment : FullScreenDialogFragment(), MultiselectForwardFragment.Callback {
-  override fun getTitle(): Int = requireArguments().getInt(MultiselectForwardFragment.ARG_TITLE)
+  override fun getTitle(): Int = requireArguments().getInt(DIALOG_TITLE)
 
   override fun getDialogLayoutResource(): Int = R.layout.fragment_container
 
@@ -33,6 +35,10 @@ class MultiselectForwardFullScreenDialogFragment : FullScreenDialogFragment(), M
     return ContextCompat.getColor(requireContext(), R.color.signal_background_primary)
   }
 
+  override fun getStorySendRequirements(): Stories.MediaTransform.SendRequirements? {
+    return findListener<Callback>()?.getStorySendRequirements()
+  }
+
   override fun getContainer(): ViewGroup {
     return requireView().findViewById(R.id.full_screen_dialog_content) as ViewGroup
   }
@@ -47,12 +53,8 @@ class MultiselectForwardFullScreenDialogFragment : FullScreenDialogFragment(), M
 
   override fun onSearchInputFocused() = Unit
 
-  override fun canSendMediaToStories(): Boolean {
-    return findListener<Callback>()?.canSendMediaToStories() ?: true
-  }
-
   interface Callback {
     fun onFinishForwardAction() = Unit
-    fun canSendMediaToStories(): Boolean = true
+    fun getStorySendRequirements(): Stories.MediaTransform.SendRequirements? = null
   }
 }

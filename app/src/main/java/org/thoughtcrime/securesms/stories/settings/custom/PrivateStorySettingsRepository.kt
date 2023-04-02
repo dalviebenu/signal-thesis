@@ -7,6 +7,7 @@ import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.database.model.DistributionListId
 import org.thoughtcrime.securesms.database.model.DistributionListRecord
 import org.thoughtcrime.securesms.recipients.RecipientId
+import org.thoughtcrime.securesms.sms.MessageSender
 import org.thoughtcrime.securesms.stories.Stories
 
 class PrivateStorySettingsRepository {
@@ -16,10 +17,10 @@ class PrivateStorySettingsRepository {
     }.subscribeOn(Schedulers.io())
   }
 
-  fun removeMember(distributionListId: DistributionListId, member: RecipientId): Completable {
+  fun removeMember(distributionListRecord: DistributionListRecord, member: RecipientId): Completable {
     return Completable.fromAction {
-      SignalDatabase.distributionLists.removeMemberFromList(distributionListId, member)
-      Stories.onStorySettingsChanged(distributionListId)
+      SignalDatabase.distributionLists.removeMemberFromList(distributionListRecord.id, distributionListRecord.privacyMode, member)
+      Stories.onStorySettingsChanged(distributionListRecord.id)
     }.subscribeOn(Schedulers.io())
   }
 
@@ -27,6 +28,13 @@ class PrivateStorySettingsRepository {
     return Completable.fromAction {
       SignalDatabase.distributionLists.deleteList(distributionListId)
       Stories.onStorySettingsChanged(distributionListId)
+
+      val recipientId = SignalDatabase.recipients.getOrInsertFromDistributionListId(distributionListId)
+      SignalDatabase.messages.getAllStoriesFor(recipientId, -1).use { reader ->
+        for (record in reader) {
+          MessageSender.sendRemoteDelete(record.id)
+        }
+      }
     }.subscribeOn(Schedulers.io())
   }
 

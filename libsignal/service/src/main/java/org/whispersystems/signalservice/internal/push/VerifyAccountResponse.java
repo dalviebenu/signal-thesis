@@ -5,13 +5,16 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class VerifyAccountResponse {
   @JsonProperty
-  private String uuid;
+  public String uuid;
 
   @JsonProperty
-  private String pni;
+  public String pni;
 
   @JsonProperty
-  private boolean storageCapable;
+  public boolean storageCapable;
+
+  @JsonProperty
+  public String number;
 
   @JsonCreator
   public VerifyAccountResponse() {}

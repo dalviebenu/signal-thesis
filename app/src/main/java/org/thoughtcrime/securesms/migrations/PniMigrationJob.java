@@ -1,16 +1,14 @@
 package org.thoughtcrime.securesms.migrations;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
-import org.thoughtcrime.securesms.jobmanager.Data;
 import org.thoughtcrime.securesms.jobmanager.Job;
 import org.thoughtcrime.securesms.jobmanager.impl.NetworkConstraint;
 import org.thoughtcrime.securesms.keyvalue.SignalStore;
-import org.thoughtcrime.securesms.recipients.Recipient;
-import org.thoughtcrime.securesms.recipients.RecipientId;
 import org.whispersystems.signalservice.api.push.PNI;
 
 import java.io.IOException;
@@ -49,14 +47,13 @@ public class PniMigrationJob extends MigrationJob {
       return;
     }
 
-    RecipientId self = Recipient.self().getId();
-    PNI         pni  = PNI.parseOrNull(ApplicationDependencies.getSignalServiceAccountManager().getWhoAmI().getPni());
+    PNI pni = PNI.parseOrNull(ApplicationDependencies.getSignalServiceAccountManager().getWhoAmI().getPni());
 
     if (pni == null) {
       throw new IOException("Invalid PNI!");
     }
 
-    SignalDatabase.recipients().setPni(self, pni);
+    SignalDatabase.recipients().linkIdsForSelf(SignalStore.account().requireAci(), pni, SignalStore.account().requireE164());
     SignalStore.account().setPni(pni);
   }
 
@@ -67,7 +64,7 @@ public class PniMigrationJob extends MigrationJob {
 
   public static class Factory implements Job.Factory<PniMigrationJob> {
     @Override
-    public @NonNull PniMigrationJob create(@NonNull Parameters parameters, @NonNull Data data) {
+    public @NonNull PniMigrationJob create(@NonNull Parameters parameters, @Nullable byte[] serializedData) {
       return new PniMigrationJob(parameters);
     }
   }

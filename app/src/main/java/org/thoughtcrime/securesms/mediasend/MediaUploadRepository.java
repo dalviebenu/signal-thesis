@@ -8,12 +8,13 @@ import androidx.annotation.WorkerThread;
 
 import com.annimon.stream.Stream;
 
+import org.signal.core.util.ThreadUtil;
 import org.signal.core.util.concurrent.SignalExecutors;
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.attachments.AttachmentId;
-import org.thoughtcrime.securesms.database.AttachmentDatabase;
-import org.thoughtcrime.securesms.database.AttachmentDatabase.TransformProperties;
+import org.thoughtcrime.securesms.database.AttachmentTable;
+import org.thoughtcrime.securesms.database.AttachmentTable.TransformProperties;
 import org.thoughtcrime.securesms.database.SignalDatabase;
 import org.thoughtcrime.securesms.dependencies.ApplicationDependencies;
 import org.thoughtcrime.securesms.jobmanager.JobManager;
@@ -56,7 +57,7 @@ public class MediaUploadRepository {
   public MediaUploadRepository(@NonNull Context context) {
     this.context       = context;
     this.uploadResults = new LinkedHashMap<>();
-    this.executor      = SignalExecutors.newCachedSingleThreadExecutor("signal-MediaUpload");
+    this.executor      = SignalExecutors.newCachedSingleThreadExecutor("signal-MediaUpload", ThreadUtil.PRIORITY_IMPORTANT_BACKGROUND_THREAD);
   }
 
   public void startUpload(@NonNull Media media, @Nullable Recipient recipient) {
@@ -144,7 +145,7 @@ public class MediaUploadRepository {
   @WorkerThread
   private void uploadMediaInternal(@NonNull Media media, @Nullable Recipient recipient) {
     Attachment      attachment = asAttachment(context, media);
-    PreUploadResult result     = MessageSender.preUploadPushAttachment(context, attachment, recipient);
+    PreUploadResult result     = MessageSender.preUploadPushAttachment(context, attachment, recipient, media);
 
     if (result != null) {
       uploadResults.put(media, result);
@@ -165,7 +166,7 @@ public class MediaUploadRepository {
 
   @WorkerThread
   private void updateCaptionsInternal(@NonNull List<Media> updatedMedia) {
-    AttachmentDatabase db = SignalDatabase.attachments();
+    AttachmentTable db = SignalDatabase.attachments();
 
     for (Media updated : updatedMedia) {
       PreUploadResult result = uploadResults.get(updated);

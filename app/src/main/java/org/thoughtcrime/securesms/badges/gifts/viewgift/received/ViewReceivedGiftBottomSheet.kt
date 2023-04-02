@@ -11,6 +11,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.kotlin.subscribeBy
 import org.signal.core.util.DimensionUnit
+import org.signal.core.util.getParcelableCompat
 import org.signal.core.util.logging.Log
 import org.signal.libsignal.zkgroup.InvalidInputException
 import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialPresentation
@@ -73,7 +74,7 @@ class ViewReceivedGiftBottomSheet : DSLSettingsBottomSheetFragment() {
   private val lifecycleDisposable = LifecycleDisposable()
 
   private val sentFrom: RecipientId
-    get() = requireArguments().getParcelable(ARG_SENT_FROM)!!
+    get() = requireArguments().getParcelableCompat(ARG_SENT_FROM, RecipientId::class.java)!!
 
   private val messageId: Long
     get() = requireArguments().getLong(ARG_MESSAGE_ID)
@@ -123,7 +124,8 @@ class ViewReceivedGiftBottomSheet : DSLSettingsBottomSheetFragment() {
     }
 
     errorDialog = DonationErrorDialogs.show(
-      requireContext(), throwable,
+      requireContext(),
+      throwable,
       object : DonationErrorDialogs.DialogCallback() {
         override fun onDialogDismissed() {
           findNavController().popBackStack()
@@ -157,8 +159,9 @@ class ViewReceivedGiftBottomSheet : DSLSettingsBottomSheetFragment() {
         if (state.recipient != null && !isGiftBadgeRedeemed(state.giftBadge)) {
           noPadTextPref(
             title = DSLSettingsText.from(
-              charSequence = requireContext().getString(R.string.ViewReceivedGiftBottomSheet__s_sent_you_a_gift, state.recipient.getShortDisplayName(requireContext())),
-              DSLSettingsText.CenterModifier, DSLSettingsText.Title2BoldModifier
+              charSequence = requireContext().getString(R.string.ViewReceivedGiftBottomSheet__s_made_a_donation_for_you, state.recipient.getShortDisplayName(requireContext())),
+              DSLSettingsText.CenterModifier,
+              DSLSettingsText.TitleLargeModifier
             )
           )
 
@@ -179,7 +182,7 @@ class ViewReceivedGiftBottomSheet : DSLSettingsBottomSheetFragment() {
   private fun DSLConfiguration.presentSubheading(recipient: Recipient) {
     noPadTextPref(
       title = DSLSettingsText.from(
-        charSequence = requireContext().getString(R.string.ViewReceivedGiftBottomSheet__youve_received_a_gift_badge, recipient.getDisplayName(requireContext())),
+        charSequence = requireContext().getString(R.string.ViewReceivedGiftBottomSheet__s_made_a_donation_to_signal, recipient.getShortDisplayName(requireContext())),
         DSLSettingsText.CenterModifier
       )
     )
@@ -206,7 +209,8 @@ class ViewReceivedGiftBottomSheet : DSLSettingsBottomSheetFragment() {
       else -> {
         customPref(
           BadgeDisplay112.Model(
-            badge = badge
+            badge = badge,
+            withDisplayText = false
           )
         )
 

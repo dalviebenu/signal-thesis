@@ -1,11 +1,13 @@
 package org.thoughtcrime.securesms.releasechannel
 
 import org.thoughtcrime.securesms.attachments.PointerAttachment
-import org.thoughtcrime.securesms.database.MessageDatabase
+import org.thoughtcrime.securesms.database.MessageTable
 import org.thoughtcrime.securesms.database.SignalDatabase
+import org.thoughtcrime.securesms.database.model.StoryType
 import org.thoughtcrime.securesms.database.model.databaseprotos.BodyRangeList
 import org.thoughtcrime.securesms.mms.IncomingMediaMessage
 import org.thoughtcrime.securesms.recipients.RecipientId
+import org.thoughtcrime.securesms.util.MediaUtil
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachment
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentRemoteId
@@ -19,32 +21,33 @@ object ReleaseChannel {
 
   const val CDN_NUMBER = -1
 
-  fun insertAnnouncement(
+  fun insertReleaseChannelMessage(
     recipientId: RecipientId,
     body: String,
     threadId: Long,
-    image: String? = null,
-    imageWidth: Int = 0,
-    imageHeight: Int = 0,
+    media: String? = null,
+    mediaWidth: Int = 0,
+    mediaHeight: Int = 0,
+    mediaType: String = "image/webp",
     serverUuid: String? = UUID.randomUUID().toString(),
-    messageRanges: BodyRangeList? = null
-  ): MessageDatabase.InsertResult? {
-
-    val attachments: Optional<List<SignalServiceAttachment>> = if (image != null) {
+    messageRanges: BodyRangeList? = null,
+    storyType: StoryType = StoryType.NONE
+  ): MessageTable.InsertResult? {
+    val attachments: Optional<List<SignalServiceAttachment>> = if (media != null) {
       val attachment = SignalServiceAttachmentPointer(
         CDN_NUMBER,
         SignalServiceAttachmentRemoteId.from(""),
-        "image/webp",
+        mediaType,
         null,
         Optional.empty(),
         Optional.empty(),
-        imageWidth,
-        imageHeight,
+        mediaWidth,
+        mediaHeight,
         Optional.empty(),
-        Optional.of(image),
+        Optional.of(media),
         false,
         false,
-        false,
+        MediaUtil.isVideo(mediaType),
         Optional.empty(),
         Optional.empty(),
         System.currentTimeMillis()
@@ -63,9 +66,10 @@ object ReleaseChannel {
       body = body,
       attachments = PointerAttachment.forPointers(attachments),
       serverGuid = serverUuid,
-      messageRanges = messageRanges
+      messageRanges = messageRanges,
+      storyType = storyType
     )
 
-    return SignalDatabase.mms.insertSecureDecryptedMessageInbox(message, threadId).orElse(null)
+    return SignalDatabase.messages.insertSecureDecryptedMessageInbox(message, threadId).orElse(null)
   }
 }

@@ -4,8 +4,6 @@ import android.content.Context;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
-import android.text.Spannable;
-import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.style.CharacterStyle;
 import android.util.AttributeSet;
@@ -13,6 +11,7 @@ import android.util.AttributeSet;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 
+import org.signal.core.util.BreakIteratorCompat;
 import org.signal.core.util.logging.Log;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.components.emoji.SimpleEmojiTextView;
@@ -21,6 +20,7 @@ import org.thoughtcrime.securesms.util.ContextUtil;
 import org.thoughtcrime.securesms.util.SpanUtil;
 import org.thoughtcrime.securesms.util.ViewUtil;
 
+import java.util.Iterator;
 import java.util.Objects;
 
 public class FromTextView extends SimpleEmojiTextView {
@@ -49,13 +49,11 @@ public class FromTextView extends SimpleEmojiTextView {
 
   public void setText(Recipient recipient, @Nullable CharSequence fromString, boolean read, @Nullable String suffix) {
     SpannableStringBuilder builder  = new SpannableStringBuilder();
-    SpannableString        fromSpan = new SpannableString(fromString);
-    fromSpan.setSpan(getFontSpan(!read), 0, fromSpan.length(), Spannable.SPAN_INCLUSIVE_EXCLUSIVE);
 
     if (recipient.isSelf()) {
       builder.append(getContext().getString(R.string.note_to_self));
     } else {
-      builder.append(fromSpan);
+      builder.append(fromString);
     }
 
     if (suffix != null) {
@@ -84,9 +82,5 @@ public class FromTextView extends SimpleEmojiTextView {
     mutedDrawable.setColorFilter(new PorterDuffColorFilter(ContextCompat.getColor(getContext(), R.color.signal_icon_tint_secondary), PorterDuff.Mode.SRC_IN));
 
     return mutedDrawable;
-  }
-
-  private CharacterStyle getFontSpan(boolean isBold) {
-    return isBold ? SpanUtil.getBoldSpan() : SpanUtil.getNormalSpan();
   }
 }
